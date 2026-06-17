@@ -1,0 +1,51 @@
+======================================================================
+FRAUD SCORER EVALUATION  (card-level decision unit)
+======================================================================
+cards: 1000  (28 fraud)   rows: 54949
+cost knobs: FN:FP = 20.0:1   FP review cost = $5.0
+
+NOTE: accuracy is deliberately not reported. At this class imbalance
+      a do-nothing model scores ~97.2% accuracy while catching zero fraud.
+
+----------------------------------------------------------------------
+COST-MINIMISING OPERATING POINT
+----------------------------------------------------------------------
+  fixed-ratio (20.0:1):  threshold 0.35   cost 443 units   precision 0.083  recall 0.464
+  amount-weighted:    threshold 0.10   cost $2,408   precision 0.056  recall 0.750
+  -> the two cost models prefer DIFFERENT operating points (0.35 vs 0.10); the choice of cost model is itself a business decision.
+
+----------------------------------------------------------------------
+DIAGNOSTICS @ reference threshold 0.50  (at threshold 0.50)
+----------------------------------------------------------------------
+  per-scenario recall:
+    card_testing         33%
+    account_takeover     29%
+    impossible_travel    0%
+    stolen_spree         57%
+  hard-negative FP  (n=63):
+    sequence-aware scorer: 10 (16%)
+    naive single-row rule: 48 (76%)
+    -> sequence approach reduces hard-negative FPs
+
+----------------------------------------------------------------------
+DIAGNOSTICS @ target recall 90%  (at threshold 0.00)
+----------------------------------------------------------------------
+  per-scenario recall:
+    card_testing         100%
+    account_takeover     100%
+    impossible_travel    100%
+    stolen_spree         100%
+  hard-negative FP  (n=63):
+    sequence-aware scorer: 63 (100%)
+    naive single-row rule: 48 (76%)
+    -> sequence approach does not beat the naive rule here
+
+  (a single blended recall would hide divergence between scenarios)
+
+----------------------------------------------------------------------
+ROW-LEVEL DIAGNOSTIC  (at threshold 0.50; secondary)
+----------------------------------------------------------------------
+  TP 94  FP 849  TN 53958  FN 48   precision 0.100  recall 0.662
+  (row-level reveals whether the scorer fires on the actual fraud rows,
+   not merely somewhere on a correctly-flagged card)
+======================================================================

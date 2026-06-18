@@ -25,11 +25,11 @@ from that transaction's own future, except the explicitly-flagged static
 join. Every trailing computation below consumes only rows already seen.
 
 Usage:
-    python features.py --txns transactions.csv --profiles card_profiles.csv \
+    python -m fraud_eval.features --txns transactions.csv --profiles card_profiles.csv \
         --out featured.csv
 
 Or as a library:
-    from features import build_features
+    from fraud_eval.features import build_features
     featured = build_features(txn_rows, profile_rows)
 """
 
@@ -39,7 +39,7 @@ import statistics
 from collections import defaultdict
 from datetime import datetime
 
-from fx import load_rates, to_usd
+from .fx import load_rates, to_usd
 
 # Sentinel for "no previous transaction" on a card's first row.
 NO_PRIOR = -1

@@ -9,10 +9,10 @@ flagged in the brief (§4.4). The interface could gain a date parameter
 and a point-in-time lookup without disturbing the rest of the pipeline.
 
 Usage (generate fx_rates.csv once):
-    python fx.py --out fx_rates.csv
+    python -m fraud_eval.fx --out fx_rates.csv
 
 Usage as a library:
-    from fx import COUNTRY_CURRENCY, load_rates, to_usd
+    from fraud_eval.fx import COUNTRY_CURRENCY, load_rates, to_usd
     rates = load_rates("fx_rates.csv")
     usd = to_usd(amount, currency, rates)
 """

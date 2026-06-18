@@ -10,7 +10,7 @@ can measure precision under genuine ambiguity.
 NOTE: This produces SYNTHETIC data only. No real cardholder data is used.
 
 Usage:
-    python generate_synthetic.py --cards 1000 --days 30 --out transactions.csv
+    python -m fraud_eval.generate_synthetic --cards 1000 --days 30 --out transactions.csv
 """
 
 import argparse
@@ -18,7 +18,7 @@ import csv
 import random
 from datetime import datetime, timedelta
 
-from fx import COUNTRY_CURRENCY, RATES
+from .fx import COUNTRY_CURRENCY, RATES
 
 
 def _rid(rng, prefix, nbits=48):

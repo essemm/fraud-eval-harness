@@ -7,8 +7,8 @@ clause of the spec it violates.
 
 from collections import Counter
 
-import fx
-import generate_synthetic as gen
+from fraud_eval import fx
+from fraud_eval import generate_synthetic as gen
 
 SEED = 12345
 

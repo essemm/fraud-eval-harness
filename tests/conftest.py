@@ -10,19 +10,14 @@ scenarios and all three hard-negative types appear (a fixed seed guarantees
 they do, and G3 asserts it).
 """
 
-import os
-import sys
 import pytest
 
-# make the project modules importable regardless of where pytest is invoked
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
-import fx
-import generate_synthetic as gen
-import profile as prof
-import features as feat
-import score as scr
-import evaluate as ev
+from fraud_eval import fx
+from fraud_eval import generate_synthetic as gen
+from fraud_eval import profile as prof
+from fraud_eval import features as feat
+from fraud_eval import score as scr
+from fraud_eval import evaluate as ev
 
 SEED = 12345
 

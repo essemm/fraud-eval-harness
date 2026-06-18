@@ -2,8 +2,8 @@
 Scoring (S1-S3) and evaluation (E1-E4) acceptance criteria from brief §10.
 """
 
-import score as scr
-import evaluate as ev
+from fraud_eval import score as scr
+from fraud_eval import evaluate as ev
 
 
 # --- scoring --------------------------------------------------------------

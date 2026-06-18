@@ -9,8 +9,8 @@ whole sequence-aware approach depends on being honest about.
 import statistics
 from collections import OrderedDict, defaultdict
 
-import fx
-import features as feat
+from fraud_eval import fx
+from fraud_eval import features as feat
 
 NO_PRIOR = feat.NO_PRIOR
 
@@ -57,7 +57,7 @@ def test_P5_profile_amounts_are_usd(txns, rates):
     """P5: profile statistics are computed on USD-normalised amounts. A card
     transacting only in a non-USD currency must have a profile max equal to
     its max NATIVE amount times the rate, not the native amount itself."""
-    import profile as prof
+    from fraud_eval import profile as prof
     # find a card that transacts in a single non-USD currency
     by_card = defaultdict(list)
     for r in txns:

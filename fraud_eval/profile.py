@@ -18,7 +18,7 @@ The fx_rates join is performed here so this module remains independently
 runnable without a pre-normalised input.
 
 Usage:
-    python profile.py --in transactions.csv --fx-rates fx_rates.csv \
+    python -m fraud_eval.profile --in transactions.csv --fx-rates fx_rates.csv \
         --out card_profiles.csv
 """
 
@@ -27,7 +27,7 @@ import csv
 import statistics
 from collections import defaultdict
 
-from fx import load_rates, to_usd
+from .fx import load_rates, to_usd
 
 
 def build_profiles(rows, rates):

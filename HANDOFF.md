@@ -1,97 +1,126 @@
 # Project checkpoint — fraud-detection (Sequence-Aware Fraud Detection Eval Harness)
 
-_Last updated: 2026-06-17 (session 2). Pick-up note for resuming, incl. a new chat._
+_Last updated: 2026-06-18 (session 3). Pick-up note for resuming, incl. a new chat._
 
 ## Where we are
 
-**All six pipeline modules built, verified, and on disk:**
-`fx.py` → `generate_synthetic.py` → `profile.py` → `features.py` → `score.py` → `evaluate.py`.
-**Full pytest suite written and passing (27 tests, ~1s).**
+Pipeline complete, tested, and **refactored into a package**. Repo at
+`/Users/scott/Projects/fraud-detection/`. Layout now:
 
-The pipeline is functionally complete. Remaining work is packaging/presentation:
-restructure into a package, then the README. Repo is at
-`/Users/scott/Projects/fraud-detection/`. Git initialised; flat layout still
-(restructure is the next deliberate commit).
+    fraud_eval/              the package
+      __init__.py
+      scorer.py              the Scorer protocol (shared interface seam)
+      fx.py
+      generate_synthetic.py
+      profile.py
+      features.py
+      score.py               RuleScorer (implements Scorer structurally)
+      evaluate.py
+    tests/                   pytest suite, 27 tests, one per §10 criterion
+    requirements.txt         runtime = stdlib only; pytest is the dev dependency
+    PROJECT_BRIEF.md, README.md (empty), HANDOFF.md, .gitignore
 
-## Done this session
+## Done this session (refactor)
 
-- **evaluate.py** — the centrepiece. Card-level decision unit (row-level
-  reported as secondary diagnostic). Threshold sweep; two configurable cost
-  models (fixed FN:FP ratio, default 20:1; amount-weighted = full USD lost per
-  miss + flat per-FP review cost). Reports: cost-minimising operating point
-  under each model, per-scenario recall, hard-negative FP rate vs a naive
-  single-row baseline. Outputs text report + sweep.csv + metrics.json.
-  - Caught and handled a real issue: at aggressive ratios (e.g. 100:1) the
-    cost-minimiser degenerates to "flag everything" (threshold 0). Fix: lowered
-    default to 20:1 AND added degeneracy detection that names the flag-all case
-    instead of presenting threshold 0 as a real operating point. Diagnostics are
-    reported at TWO stated reference points (fixed 0.50, and target-recall 90%),
-    never at the raw cost-min, so they stay meaningful.
-  - Real findings on a 1500-card run: per-scenario recall at 0.50 was
-    card_testing 71% / account_takeover 44% / impossible_travel 23% /
-    stolen_spree 29% (the spread a blended number would hide). Hard-negative FP:
-    sequence-aware 14% vs naive single-row 68% — the sequence approach earns its
-    keep by ~5x fewer false positives. Verified E1–E4 + determinism.
-- **tests/** — pytest suite, one test per acceptance criterion in brief §10,
-  named for the criterion (test_G1_..., test_F1_..., etc.). conftest.py builds a
-  small in-memory dataset via fixtures (no disk I/O, per NFR §9). Covers
-  G1–G6, X1, P1–P5, F1–F4, S1–S3, E1–E4, plus 2 extra property tests
-  (aggregation-methods-differ, degeneracy-detected). All 27 pass.
-  - F1 (no-leakage) test independently reconstructs the trailing baseline from
-    prior rows only and asserts the code matches — verifies the central claim
-    from outside the implementation. S2 swaps in a stub scorer to prove the
-    pluggability contract.
+- Created `fraud_eval/` package; moved all six modules in; added __init__.py.
+- Extracted the `Scorer` protocol into its own `scorer.py` (the agreed "option
+  1" pre-shaping for the future ML scorer). Both RuleScorer and a future
+  MLScorer import the contract from this neutral module as equals. RuleScorer
+  satisfies it structurally (implements score_row; no explicit inheritance).
+- Converted internal imports to relative (`from .fx import ...`,
+  `from .scorer import Scorer`). Updated usage docstrings to
+  `python -m fraud_eval.<module>`. Updated all test imports to
+  `from fraud_eval import ...`.
+- Added requirements.txt (pytest only; runtime is stdlib).
+- Verified in staging: full suite 27/27 PASS; full pipeline runs end to end via
+  `python -m fraud_eval.<module>`. On-disk files confirmed correct by diff.
 
-## Earlier (session 1) — currency dimension + bug fixes
+## TO-DO on Scott's machine (couldn't be done remotely)
 
-- Added currency: transactions carry native amount + ISO-4217 currency;
-  fx_rates.csv maps to USD; fx.py shared to_usd helper; profile + features
-  normalise to USD; native amount/currency ride through for reporting.
-- Fixed 3 generator bugs: G1 reproducibility (uuid4 → seeded _rid), currency-
-  blind amounts (now USD-equivalent scaled), dead conditional in card_testing.
-- PROJECT_BRIEF.md updated (fx_rates §4.4, currency invariants, §5 neutrality,
-  G5/G6/X1/P5/F4). Language: Known limitations / Files and interfaces / "design"
-  not "shape".
-- .gitignore: .claude/ ignored; *.csv ignored (so fx_rates.csv currently
-  uncommitted — may want !fx_rates.csv since it's static reference data).
+1. `python -m pytest tests/ -q` from repo root — confirm 27 pass in place.
+2. `git rm OLD_score_DELETE_ME.py` — stale duplicate of the old root-level
+   score.py (renamed because the connector can't delete files; the real one is
+   now fraud_eval/score.py).
+3. Optionally regenerate outputs via the new invocation (see commands below).
+4. Commit the refactor as its own commit.
+
+## Running it (new package invocation)
+
+ALWAYS activate the venv first (see below). Then, from the repo root:
+
+    python -m fraud_eval.fx --out fx_rates.csv
+    python -m fraud_eval.generate_synthetic --cards 1000 --days 30 --out transactions.csv
+    python -m fraud_eval.profile --in transactions.csv --fx-rates fx_rates.csv --out card_profiles.csv
+    python -m fraud_eval.features --txns transactions.csv --profiles card_profiles.csv --fx-rates fx_rates.csv --out featured.csv
+    python -m fraud_eval.score --in featured.csv --agg decaying_sum --row-out scored_rows.csv --card-out scored_cards.csv
+    python -m fraud_eval.evaluate --rows scored_rows.csv --cards scored_cards.csv
+
+## Virtual environment
+
+The venv lives in `.venv/` (gitignored). From inside the project directory:
+
+    source .venv/bin/activate        # activate — prompt then shows (.venv)
+    deactivate                       # when done
+
+If `.venv/` ever needs recreating (new machine, deleted folder):
+
+    python3 -m venv .venv
+    source .venv/bin/activate
+    python3 -m pip install -r requirements.txt
+
+Note: macOS system pip is broken (dead /usr/bin/python shebang) and Homebrew
+Python is externally-managed (PEP 668). The venv sidesteps both. Always use
+`python3 -m pip` / `python3 -m pytest` rather than bare `pip`/`pytest`.
 
 ## Next steps (in order)
 
-1. **Restructure** as its own commit: move the 6 modules into a `fraud_eval/`
-   package (with __init__.py); keep tests/ at root; add gitignored data/ for
-   CSV outputs. Imports change `import fx` → `from fraud_eval import fx`; run via
-   `python -m fraud_eval.generate_synthetic`. conftest.py's sys.path hack gets
-   replaced by proper package imports. Do modules + tests + brief diagram in ONE
-   pass — the tests will catch any missed import.
-2. Add **requirements.txt**: runtime is stdlib-only; pytest is the one dev
-   dependency. Note the runtime-vs-dev distinction.
-3. Write the **README** (currently empty) — reflect the final package layout, so
-   do it AFTER the restructure. The hard-negative twin table (brief §5) and the
-   real eval findings above lift well into it. Repo name on resume:
-   **fraud-eval-harness** (skip demo/dummy); title "Sequence-Aware Fraud
-   Detection Evaluation Harness". Directory rename is free.
-4. (Optional, later) the visualiser — reads sweep.csv / metrics.json to plot the
-   threshold sweep and per-scenario recall. Belongs in its own viz/ dir with its
-   own deps (matplotlib), separate from the stdlib-only pipeline.
+1. Finish the 4 to-do items above (verify, git rm, commit).
+2. Write the **README** (currently empty) — reflect the package layout and the
+   `python -m` commands. The hard-negative twin table (brief §5) and the real
+   eval findings lift well into it. Repo name for resume: **fraud-eval-harness**;
+   title "Sequence-Aware Fraud Detection Evaluation Harness".
+3. **ML scorer swap-in** (the agreed scope, NOT per-card/daily-retrain):
+   - A single model trained on the WHOLE population's featured rows (the signal
+     lives across cards, not within one). scikit-learn logistic regression or a
+     gradient-boosted tree.
+   - New file `fraud_eval/score_ml.py`: imports `Scorer` from `.scorer`,
+     implements `score_row`, drops into the SAME evaluate.py harness. Adds
+     scikit-learn to requirements.
+   - The payoff is the A/B: run ML vs RuleScorer through the same harness, same
+     cost models, same per-scenario recall + hard-negative test. metrics.json
+     was designed to make this comparison clean.
+   - Per-card / daily-retrain / rolling-window online learning is explicitly OUT
+     of scope (overkill for static synthetic data) but is a GOOD interview
+     talking point as "how I'd extend this for concept drift in production."
 
-## Open decisions (brief §11) — mostly resolved now
+## Eval findings to reuse (from a 1500-card run, threshold 0.50)
 
-- Amount-weighted FN cost: **chose full amount lost** (capping at issuer
-  liability documented as future refinement).
-- Card aggregation: both built + configurable; **decaying_sum** is the default;
-  eval shows the max-vs-decaying tradeoff.
-- Trailing window: **time-based** (velocity_1h/24h).
-- Still open / minor: evaluate.py hardcodes reference threshold 0.50 and target
-  recall 0.90 — could expose as CLI args (Scott to decide on his run).
+- Per-scenario recall: card_testing 71% / account_takeover 44% /
+  impossible_travel 23% / stolen_spree 29% (the spread a blended number hides).
+- Hard-negative FP: sequence-aware 14% vs naive single-row 68% — the sequence
+  approach earns its keep (~5x fewer false positives).
+- Cost models can disagree on the operating point (that's the point). At
+  aggressive ratios the cost-min degenerates to "flag all"; evaluate.py detects
+  and names that rather than presenting it as real. Default ratio lowered to
+  20:1 for an interior optimum.
+
+## Open decisions (brief §11) — resolved
+
+- Amount-weighted FN cost: full amount lost (issuer-liability cap = future work).
+- Aggregation: both built; decaying_sum default.
+- Trailing window: time-based.
+- Minor/open: evaluate.py hardcodes reference threshold 0.50 + target recall
+  0.90; could expose as CLI args.
 
 ## Key context
 
-- Both target labs (Anthropic FDE / OpenAI Applied AI SA) weight evaluation
-  methodology heavily — evaluate.py + the test suite are the most
-  interview-relevant artifacts.
-- Filesystem connector with write_file is enabled (can read+write ~/Projects).
-  GitHub connector shows connected but tools don't surface mid-session — try a
-  fresh chat. Public repos readable via web fetch with a URL.
 - Scott reviews each file before it lands; edits independently between rounds;
   plain, specific, non-hyperbolic language; never the word "shape" (use design/
-  structure/layout); verifies claims from output, not just code.
+  structure/layout); verifies claims from output artifacts, not just code.
+- Both target labs (Anthropic FDE / OpenAI Applied AI SA) weight evaluation
+  methodology heavily — evaluate.py + the test suite + the ML A/B are the most
+  interview-relevant artifacts.
+- Filesystem connector with write_file enabled (read+write ~/Projects); cannot
+  delete files (hence the rename-to-DELETE_ME pattern). GitHub connector tools
+  don't surface mid-session — try a fresh chat; public repos readable via web
+  fetch with a URL.

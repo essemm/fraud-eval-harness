@@ -35,7 +35,7 @@ Outputs: a printed text report, a threshold-sweep CSV (for plotting), and a
 JSON metrics dump (for programmatic comparison, e.g. rules-vs-ML later).
 
 Usage:
-    python evaluate.py --rows scored_rows.csv --cards scored_cards.csv \
+    python -m fraud_eval.evaluate --rows scored_rows.csv --cards scored_cards.csv \
         --fn-fp-ratio 20 --fp-review-cost 5 \
         --report-out report.txt --sweep-out sweep.csv --json-out metrics.json
 """

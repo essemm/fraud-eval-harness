@@ -30,11 +30,11 @@ contributions visible -- rather than blending into one opaque number -- is the
 whole point of the transparent baseline.
 
 Usage:
-    python score.py --in featured.csv --agg decaying_sum \
+    python -m fraud_eval.score --in featured.csv --agg decaying_sum \
         --row-out scored_rows.csv --card-out scored_cards.csv
 
 Or as a library:
-    from score import RuleScorer, aggregate_cards
+    from fraud_eval.score import RuleScorer, aggregate_cards
     scorer = RuleScorer()
     scored = [scorer.score_row(r) for r in featured_rows]
     cards  = aggregate_cards(scored, method="max")
@@ -44,7 +44,8 @@ import argparse
 import csv
 import math
 from collections import defaultdict
-from typing import Protocol
+
+from .scorer import Scorer
 
 
 # --- Tunable rule thresholds ---------------------------------------------
@@ -58,17 +59,13 @@ HIGH_RISK_CATEGORIES = {"electronics", "gift_card", "crypto", "travel"}
 IMPOSSIBLE_TRAVEL_MAX_SECS = 3 * 3600  # under 3h between countries
 
 
-class Scorer(Protocol):
-    """Stable interface. An ML scorer implements this and nothing else
-    in the pipeline changes (brief S2)."""
-
-    def score_row(self, row: dict) -> dict:
-        ...
-
-
 class RuleScorer:
     """Transparent rule baseline. Each rule yields (score, reason); the row
-    takes the strongest-firing rule as its score and that rule's reason."""
+    takes the strongest-firing rule as its score and that rule's reason.
+
+    Satisfies the `Scorer` protocol (.scorer) structurally -- it implements
+    `score_row`, which is all the protocol requires; no explicit inheritance
+    needed."""
 
     def score_row(self, row: dict) -> dict:
         candidates = []  # (score, reason)
@@ -205,7 +202,7 @@ def main():
     with open(args.infile, newline="") as f:
         rows = list(csv.DictReader(f))
 
-    scorer = RuleScorer()
+    scorer: Scorer = RuleScorer()
     scored = [scorer.score_row(r) for r in rows]
     cards = aggregate_cards(scored, method=args.agg, decay=args.decay)
 

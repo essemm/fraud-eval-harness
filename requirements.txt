@@ -1,5 +1,6 @@
-# Runtime: the pipeline (fraud_eval/) uses only the Python standard library.
-# There are no runtime dependencies to install.
+# Runtime: the core pipeline (fx through evaluate) uses only the stdlib.
+# score_ml.py adds one runtime dependency:
+scikit-learn>=1.3
 
 # Development only -- the test suite:
 pytest>=8.0

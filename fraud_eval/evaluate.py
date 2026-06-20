@@ -265,6 +265,20 @@ def evaluate(rows, cards, ratio, fp_review_cost, step=0.05):
     diag_target = (diagnostics_at(tr_row["threshold"])
                    if tr_row is not None else None)
 
+    # Operating-point diagnostics: per-scenario recall and hard-negative FP at
+    # the threshold the scorer would ACTUALLY run at -- its fixed-ratio cost
+    # minimum. This is the fair point for comparing two scorers whose scores are
+    # distributed differently (a calibrated ML probability and a hand-tuned rule
+    # score do not mean the same thing at a shared 0.50). If that minimum is
+    # degenerate (flag-everything), fall back to the fixed reference so the
+    # diagnostics stay meaningful, and record that we did.
+    op_degenerate = is_degenerate(best_fixed, sweep_rows)
+    op_threshold = (ref_row["threshold"] if op_degenerate
+                    else best_fixed["threshold"])
+    diag_operating = diagnostics_at(op_threshold)
+    diag_operating["from_cost_model"] = "fixed_ratio"
+    diag_operating["fell_back_to_reference"] = op_degenerate
+
     # row-level diagnostic at the fixed reference threshold
     row_items = [(float(r["score"]), int(r["is_fraud"])) for r in rows]
     rtp, rfp, rtn, rfn = confusion_at(row_items, ref_row["threshold"])
@@ -300,6 +314,7 @@ def evaluate(rows, cards, ratio, fp_review_cost, step=0.05):
             },
         },
         "diagnostics_at_reference": diag_reference,
+        "diagnostics_at_operating_point": diag_operating,
         "diagnostics_at_target_recall": diag_target,
         "row_level_diagnostic": {
             "threshold": ref_row["threshold"],
@@ -385,6 +400,17 @@ def render_report(m):
                        "sequence approach does not beat the naive rule here")
             L.append(f"    -> {verdict}")
         L.append("")
+
+    op = m["diagnostics_at_operating_point"]
+    op_title = (f"DIAGNOSTICS @ operating point "
+                f"(fixed-ratio cost-min, threshold {op['threshold']:.2f})")
+    if op.get("fell_back_to_reference"):
+        op_title += " [cost-min degenerate; using reference]"
+    render_diag(op_title, op)
+    L.append("  (this is the threshold the scorer would actually run at -- the "
+             "fair point")
+    L.append("   for comparing scorers whose scores are scaled differently)")
+    L.append("")
 
     render_diag(f"DIAGNOSTICS @ reference threshold {p['reference_threshold']:.2f}",
                 m["diagnostics_at_reference"])

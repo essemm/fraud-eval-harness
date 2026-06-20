@@ -1,30 +1,30 @@
 ======================================================================
 FRAUD SCORER EVALUATION  (card-level decision unit)
 ======================================================================
-cards: 1000  (35 fraud)   rows: 52275
+cards: 1000  (27 fraud)   rows: 55225
 cost knobs: FN:FP = 20.0:1   FP review cost = $5.0
 
 NOTE: accuracy is deliberately not reported. At this class imbalance
-      a do-nothing model scores ~96.5% accuracy while catching zero fraud.
+      a do-nothing model scores ~97.3% accuracy while catching zero fraud.
 
 ----------------------------------------------------------------------
 COST-MINIMISING OPERATING POINT
 ----------------------------------------------------------------------
-  fixed-ratio (20.0:1):  threshold 0.50   cost 469 units   precision 0.222  recall 0.400
-  amount-weighted:    threshold 0.05   cost $4,116   precision 0.059  recall 0.800
-  -> the two cost models prefer DIFFERENT operating points (0.50 vs 0.05); the choice of cost model is itself a business decision.
+  fixed-ratio (20.0:1):  threshold 0.40   cost 338 units   precision 0.133  recall 0.556
+  amount-weighted:    threshold 0.15   cost $2,777   precision 0.069  recall 0.852
+  -> the two cost models prefer DIFFERENT operating points (0.40 vs 0.15); the choice of cost model is itself a business decision.
 
 ----------------------------------------------------------------------
 DIAGNOSTICS @ reference threshold 0.50  (at threshold 0.50)
 ----------------------------------------------------------------------
   per-scenario recall:
-    card_testing         56%
-    account_takeover     25%
-    impossible_travel    22%
-    stolen_spree         56%
-  hard-negative FP  (n=66):
-    sequence-aware scorer: 2 (3%)
-    naive single-row rule: 45 (68%)
+    card_testing         83%
+    account_takeover     20%
+    impossible_travel    11%
+    stolen_spree         57%
+  hard-negative FP  (n=64):
+    sequence-aware scorer: 10 (16%)
+    naive single-row rule: 46 (72%)
     -> sequence approach reduces hard-negative FPs
 
 ----------------------------------------------------------------------
@@ -35,9 +35,9 @@ DIAGNOSTICS @ target recall 90%  (at threshold 0.00)
     account_takeover     100%
     impossible_travel    100%
     stolen_spree         100%
-  hard-negative FP  (n=66):
-    sequence-aware scorer: 66 (100%)
-    naive single-row rule: 45 (68%)
+  hard-negative FP  (n=64):
+    sequence-aware scorer: 64 (100%)
+    naive single-row rule: 46 (72%)
     -> sequence approach does not beat the naive rule here
 
   (a single blended recall would hide divergence between scenarios)
@@ -45,7 +45,7 @@ DIAGNOSTICS @ target recall 90%  (at threshold 0.00)
 ----------------------------------------------------------------------
 ROW-LEVEL DIAGNOSTIC  (at threshold 0.50; secondary)
 ----------------------------------------------------------------------
-  TP 125  FP 857  TN 51218  FN 75   precision 0.127  recall 0.625
+  TP 75  FP 865  TN 54235  FN 50   precision 0.080  recall 0.600
   (row-level reveals whether the scorer fires on the actual fraud rows,
    not merely somewhere on a correctly-flagged card)
 ======================================================================

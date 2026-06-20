@@ -393,22 +393,83 @@ Each criterion below is directly translatable to a test case.
 
 ---
 
-## 11. Open decisions
+## 11. Resolved decisions
 
-- **False-negative cost function** in the amount-weighted model: full transaction
-  amount lost, amount capped at issuer liability, or a flat per-miss cost.
-  *(Pending; default proposal: amount-weighted with a configurable cap.)*
-- **Card-level aggregation default:** `max` row-score versus decaying sum.
-  *(Pending; decaying sum favoured for card-testing sensitivity.)*
-- **Trailing-baseline window:** count-based (last N txns) versus time-based
-  (trailing days). *(Pending.)*
+These were open during design and are now settled; recorded with their
+resolution so the rationale survives.
+
+- **False-negative cost function** (amount-weighted model): **full transaction
+  amount lost.** Capping at issuer liability is noted as a future refinement, not
+  implemented — full-amount-lost is the honest gross-exposure default for v1.
+- **Card-level aggregation default:** **decaying sum** (decay 0.9). Both `max`
+  and decaying sum are built and configurable; decaying sum is the default
+  because it accumulates many small signals (card-testing) that `max` would
+  underweight. The evaluation harness reports the difference rather than
+  asserting it.
+- **Trailing-baseline window:** **time-based** (trailing 1h / 24h velocity), not
+  count-based. The time windows were already needed for the velocity signal.
+
+### Still open / minor
+
+- `evaluate.py` reports diagnostics at a fixed reference threshold (0.50) and at
+  each scorer's cost-minimising operating point; the reference value is
+  hard-coded and could be exposed as a CLI argument.
 
 ---
 
-## 12. Out of scope / future work
+## 12. Visualiser
 
-- ML scorer swap-in and its A/B comparison against the rule baseline on this
-  harness.
+The visualiser turns the harness outputs (`sweep.csv`, `metrics.json`) into
+plots. It is a pure **consumer** of those artifacts: it never re-runs the
+pipeline, re-scores, or touches the source data. That separation keeps the
+pipeline stdlib-only and deterministic while the visualiser carries its own
+heavier plotting dependency.
+
+**Placement:** a `viz/` directory at the repo root, outside the `fraud_eval/`
+package, with its plotting dependency declared separately (e.g.
+`requirements-viz.txt`) so the core pipeline's "no runtime dependencies" claim
+stays true — a reader who only wants the harness never installs it.
+
+**Output policy (decision): static first, interactive optional.**
+- **Static PNGs** (matplotlib) are the committed, README-embedded artifacts.
+  They render inline on GitHub, so a reviewer browsing the repo sees the results
+  without cloning or running anything. This is the version that does the
+  portfolio work.
+- **Interactive HTML** (Plotly, standalone file via `write_html`) is an optional
+  `--interactive` backend for local exploration — hover to read exact
+  threshold/precision/recall values, toggle scorers, zoom. Not committed as the
+  primary artifact because standalone HTML does **not** render on GitHub (the
+  source shows, not the chart). No server (Dash and similar are out of scope;
+  the cost of a running process is not worth it for a repo).
+- The two share one data-preparation path; only the final draw call differs
+  (matplotlib `savefig` vs Plotly `write_html`), so both backends are cheap to
+  maintain.
+
+**Plots (priority order):**
+1. **Cost vs threshold** — total cost across the sweep, one line per cost model,
+   minimum marked. Shows why a threshold is chosen and the degenerate
+   flag-everything behaviour at extreme ratios.
+2. **Precision-recall curve, scorers overlaid** — the threshold-independent
+   comparison. The fair rules-vs-ML view: curve dominance, not a point
+   comparison at a shared (and misleading) threshold.
+3. **Per-scenario recall** — grouped bars, rules vs ML, at each scorer's own
+   operating point (§8). Carries the caveat that these bars are noisy at low
+   fraud-card counts.
+4. **Hard-negative false-positive rate** — sequence-aware vs naive single-row
+   baseline; the most stable comparison and the "earns its complexity" point.
+
+The A/B plots (2-4) consume one `metrics.json` per scorer, so the visualiser
+takes a rules-metrics and an ml-metrics input.
+
+---
+
+## 13. Out of scope / future work
+
 - An agentic investigation layer that consumes high-score accounts and produces a
   written case file (shares the explanation backbone with `score.py`).
-- Streaming / online evaluation; this brief covers batch only.
+- Streaming / online evaluation; this brief covers batch only. A per-card,
+  rolling-window, daily-retrained model (online learning for concept drift) was
+  considered and deliberately left out: the synthetic data is static, so there is
+  no real drift to track, and a population-trained model is the correct unit
+  (fraud signal lives across cards, not within one). Noted as a production
+  extension, not a gap.

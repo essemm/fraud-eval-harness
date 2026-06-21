@@ -91,20 +91,20 @@ class RuleScorer:
             candidates.append(
                 (s, f"amount_spike: {amt_vs_trail:.1f}x trailing median"))
 
-        # Rule 3: country change without plausible travel time
+        # Rule 3: geography change without plausible travel time
         # (impossible_travel fingerprint vs its hours-apart hard-negative twin).
         if country_change and 0 <= secs < IMPOSSIBLE_TRAVEL_MAX_SECS:
             s = 0.7
             candidates.append(
-                (s, f"impossible_travel: country change after {secs}s"))
+                (s, f"impossible_travel: geography change after {secs}s"))
 
         # Rule 4: new device + foreign-IP + high-risk category
         # (account_takeover fingerprint; the home-country hard-neg won't fire
-        # the country_change leg).
+        # the geography-change leg).
         if new_device and country_change and category in HIGH_RISK_CATEGORIES:
             s = 0.8
             candidates.append(
-                (s, f"takeover_pattern: new device + country change + {category}"))
+                (s, f"takeover_pattern: new device + geography change + {category}"))
 
         # Rule 5: high-value purchase in an unusual category vs baseline
         # (stolen_spree fingerprint; one-off big-ticket is caught by the run

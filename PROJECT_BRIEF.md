@@ -293,8 +293,8 @@ the production-correct counterpart and both may be carried for comparison.
   makes the baseline explainable and is reused in stakeholder and README
   narrative.
 - **v1 scorer is rule-based and transparent.** Rules map directly to the
-  fingerprints in §5 (velocity burst, amount escalation, country change without
-  travel time, run of large unusual-category purchases).
+  fingerprints in §5 (velocity burst, amount escalation, merchant/IP country
+  change without travel time, run of large unusual-category purchases).
 - **Card-level aggregation** of row scores to an account decision. The
   aggregation function is an explicit design choice and must be named, not
   implicit: `max` row-score is the simplest; a decaying sum better matches

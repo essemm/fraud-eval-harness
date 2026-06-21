@@ -12,9 +12,9 @@
   "operating_point": {
     "fixed_ratio": {
       "threshold": 0.35,
-      "cost": 2022.0,
-      "precision": 0.1619,
-      "recall": 0.8602,
+      "cost": 2053.0,
+      "precision": 0.1602,
+      "recall": 0.8566,
       "degenerate": false
     },
     "amount_weighted": {
@@ -31,13 +31,13 @@
     "per_scenario_recall": {
       "card_testing": 0.8333,
       "account_takeover": 0.7213,
-      "impossible_travel": 0.4444,
+      "impossible_travel": 0.4306,
       "stolen_spree": 0.6912
     },
     "hard_negative_analysis": {
       "n_hard_neg_cards": 182,
-      "sequence_fp": 86,
-      "sequence_fp_rate": 0.4725,
+      "sequence_fp": 84,
+      "sequence_fp_rate": 0.4615,
       "naive_fp": 139,
       "naive_fp_rate": 0.7637
     }
@@ -47,13 +47,13 @@
     "per_scenario_recall": {
       "card_testing": 0.8974,
       "account_takeover": 0.9016,
-      "impossible_travel": 0.7778,
+      "impossible_travel": 0.7639,
       "stolen_spree": 0.8676
     },
     "hard_negative_analysis": {
       "n_hard_neg_cards": 182,
-      "sequence_fp": 138,
-      "sequence_fp_rate": 0.7582,
+      "sequence_fp": 136,
+      "sequence_fp_rate": 0.7473,
       "naive_fp": 139,
       "naive_fp_rate": 0.7637
     },
@@ -63,15 +63,15 @@
   "diagnostics_at_target_recall": {
     "threshold": 0.25,
     "per_scenario_recall": {
-      "card_testing": 0.9615,
-      "account_takeover": 0.9344,
+      "card_testing": 0.9744,
+      "account_takeover": 0.9672,
       "impossible_travel": 0.9444,
       "stolen_spree": 0.9412
     },
     "hard_negative_analysis": {
       "n_hard_neg_cards": 182,
-      "sequence_fp": 170,
-      "sequence_fp_rate": 0.9341,
+      "sequence_fp": 171,
+      "sequence_fp_rate": 0.9396,
       "naive_fp": 139,
       "naive_fp_rate": 0.7637
     }
@@ -79,10 +79,10 @@
   "row_level_diagnostic": {
     "threshold": 0.5,
     "tp": 1469,
-    "fp": 4774,
-    "tn": 158668,
+    "fp": 4450,
+    "tn": 158992,
     "fn": 79,
-    "precision": 0.2353,
+    "precision": 0.2482,
     "recall": 0.949
   }
 }

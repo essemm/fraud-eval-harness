@@ -12,9 +12,9 @@
   "operating_point": {
     "fixed_ratio": {
       "threshold": 0.05,
-      "cost": 2411.0,
-      "precision": 0.1738,
-      "recall": 0.8145,
+      "cost": 2391.0,
+      "precision": 0.1744,
+      "recall": 0.8176,
       "degenerate": false
     },
     "amount_weighted": {
@@ -46,7 +46,7 @@
     "threshold": 0.05,
     "per_scenario_recall": {
       "card_testing": 0.8132,
-      "account_takeover": 0.8451,
+      "account_takeover": 0.8592,
       "impossible_travel": 0.8158,
       "stolen_spree": 0.7875
     },
@@ -78,11 +78,11 @@
   },
   "row_level_diagnostic": {
     "threshold": 0.5,
-    "tp": 1080,
-    "fp": 2901,
-    "tn": 163814,
-    "fn": 754,
-    "precision": 0.2713,
-    "recall": 0.5889
+    "tp": 1095,
+    "fp": 2914,
+    "tn": 163801,
+    "fn": 739,
+    "precision": 0.2731,
+    "recall": 0.5971
   }
 }

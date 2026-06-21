@@ -7,12 +7,12 @@
         "std": 0.0
       },
       "precision": {
-        "mean": 0.1718,
+        "mean": 0.1721,
         "std": 0.0098
       },
       "recall": {
-        "mean": 0.8246,
-        "std": 0.0272
+        "mean": 0.8263,
+        "std": 0.0264
       }
     },
     "per_scenario_recall": {
@@ -22,8 +22,8 @@
         "n": 6
       },
       "account_takeover": {
-        "mean": 0.8527,
-        "std": 0.038,
+        "mean": 0.8596,
+        "std": 0.0364,
         "n": 6
       },
       "impossible_travel": {
@@ -54,44 +54,44 @@
     "n_seeds": 6,
     "operating_point": {
       "threshold": {
-        "mean": 0.3,
-        "std": 0.0447
+        "mean": 0.3083,
+        "std": 0.0492
       },
       "precision": {
-        "mean": 0.1538,
-        "std": 0.01
+        "mean": 0.1557,
+        "std": 0.0062
       },
       "recall": {
-        "mean": 0.9101,
-        "std": 0.031
+        "mean": 0.9009,
+        "std": 0.0299
       }
     },
     "per_scenario_recall": {
       "card_testing": {
-        "mean": 0.9508,
-        "std": 0.0338,
+        "mean": 0.9502,
+        "std": 0.036,
         "n": 6
       },
       "account_takeover": {
-        "mean": 0.9066,
-        "std": 0.0178,
+        "mean": 0.9086,
+        "std": 0.0195,
         "n": 6
       },
       "impossible_travel": {
-        "mean": 0.8711,
-        "std": 0.0626,
+        "mean": 0.8367,
+        "std": 0.0646,
         "n": 6
       },
       "stolen_spree": {
-        "mean": 0.9093,
-        "std": 0.0368,
+        "mean": 0.9068,
+        "std": 0.0334,
         "n": 6
       }
     },
     "hard_negative": {
       "sequence_fp_rate": {
-        "mean": 0.8177,
-        "std": 0.0462,
+        "mean": 0.8072,
+        "std": 0.0557,
         "n": 6
       },
       "naive_fp_rate": {

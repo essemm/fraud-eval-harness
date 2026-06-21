@@ -12,15 +12,15 @@
   "operating_point": {
     "fixed_ratio": {
       "threshold": 0.3,
-      "cost": 1908.0,
-      "precision": 0.1527,
+      "cost": 1919.0,
+      "precision": 0.1518,
       "recall": 0.9394,
       "degenerate": false
     },
     "amount_weighted": {
       "threshold": 0.15,
-      "cost_usd": 12800.0,
-      "precision": 0.104,
+      "cost_usd": 12900.0,
+      "precision": 0.1032,
       "recall": 1.0,
       "missed_fraud_loss_usd": 0.0,
       "degenerate": true
@@ -30,14 +30,14 @@
     "threshold": 0.5,
     "per_scenario_recall": {
       "card_testing": 0.871,
-      "account_takeover": 0.6136,
-      "impossible_travel": 0.6316,
+      "account_takeover": 0.6364,
+      "impossible_travel": 0.6447,
       "stolen_spree": 0.5775
     },
     "hard_negative_analysis": {
       "n_hard_neg_cards": 160,
-      "sequence_fp": 74,
-      "sequence_fp_rate": 0.4625,
+      "sequence_fp": 71,
+      "sequence_fp_rate": 0.4437,
       "naive_fp": 113,
       "naive_fp_rate": 0.7063
     }
@@ -52,8 +52,8 @@
     },
     "hard_negative_analysis": {
       "n_hard_neg_cards": 160,
-      "sequence_fp": 137,
-      "sequence_fp_rate": 0.8562,
+      "sequence_fp": 138,
+      "sequence_fp_rate": 0.8625,
       "naive_fp": 113,
       "naive_fp_rate": 0.7063
     },
@@ -70,8 +70,8 @@
     },
     "hard_negative_analysis": {
       "n_hard_neg_cards": 160,
-      "sequence_fp": 137,
-      "sequence_fp_rate": 0.8562,
+      "sequence_fp": 138,
+      "sequence_fp_rate": 0.8625,
       "naive_fp": 113,
       "naive_fp_rate": 0.7063
     }
@@ -79,10 +79,10 @@
   "row_level_diagnostic": {
     "threshold": 0.5,
     "tp": 1473,
-    "fp": 4046,
-    "tn": 161867,
+    "fp": 3998,
+    "tn": 161915,
     "fn": 69,
-    "precision": 0.2669,
+    "precision": 0.2692,
     "recall": 0.9553
   }
 }

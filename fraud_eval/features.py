@@ -24,6 +24,11 @@ LEAKAGE RULE (brief F1): no feature for a transaction may use information
 from that transaction's own future, except the explicitly-flagged static
 join. Every trailing computation below consumes only rows already seen.
 
+`is_country_change` is a unified geography-change flag: it fires when either
+the merchant country or the IP country differs from the previous transaction
+on the same card. That keeps both impossible-travel and account-takeover
+signals behind one stable downstream field.
+
 Usage:
     python -m fraud_eval.features --txns transactions.csv --profiles card_profiles.csv \
         --out featured.csv
@@ -88,6 +93,7 @@ def build_features(txn_rows, profile_rows, rates):
         prior_amounts = []
         prev_ts = None
         prev_country = None
+        prev_ip_country = None
         # timestamps of prior txns, for the trailing-velocity window
         prior_ts = []
 
@@ -132,7 +138,10 @@ def build_features(txn_rows, profile_rows, rates):
             is_new_merchant = int(r["merchant_id"] not in seen_merchants)
             is_country_change = int(
                 prev_country is not None
-                and r["merchant_country"] != prev_country
+                and (
+                    r["merchant_country"] != prev_country
+                    or r["ip_country"] != prev_ip_country
+                )
             )
 
             featured.append({
@@ -177,6 +186,7 @@ def build_features(txn_rows, profile_rows, rates):
             prior_ts.append(ts)
             prev_ts = ts
             prev_country = r["merchant_country"]
+            prev_ip_country = r["ip_country"]
 
     # stable global order for reproducible output
     featured.sort(key=lambda r: (r["card_id"], r["timestamp"]))

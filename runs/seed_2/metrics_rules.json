@@ -30,7 +30,7 @@
     "threshold": 0.5,
     "per_scenario_recall": {
       "card_testing": 0.5,
-      "account_takeover": 0.4262,
+      "account_takeover": 0.4426,
       "impossible_travel": 0.125,
       "stolen_spree": 0.3235
     },
@@ -78,11 +78,11 @@
   },
   "row_level_diagnostic": {
     "threshold": 0.5,
-    "tp": 918,
-    "fp": 2800,
-    "tn": 160642,
-    "fn": 630,
-    "precision": 0.2469,
-    "recall": 0.593
+    "tp": 930,
+    "fp": 2816,
+    "tn": 160626,
+    "fn": 618,
+    "precision": 0.2483,
+    "recall": 0.6008
   }
 }

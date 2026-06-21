@@ -21,7 +21,7 @@ Repo at `/Users/scott/Projects/fraud-detection/`. Package layout:
 `fraud_eval/` holds fx, generate_synthetic, profile, features, scorer (the
 protocol), score (RuleScorer), score_ml (MLScorer), evaluate, aggregate_runs.
 `scripts/` holds run_seed.py (orchestration). `viz/` holds make_plots.py.
-`tests/` has 33 passing tests. Run via `python -m fraud_eval.<module>` inside
+`tests/` has 36 passing tests. Run via `python -m fraud_eval.<module>` inside
 the activated venv (`source .venv/bin/activate`).
 
 ## Multi-seed A/B findings (stabilised, 6 seeds × 3,000 cards × fraud-rate 0.10)
@@ -32,15 +32,15 @@ At each scorer's OWN cost-minimising operating point (not a shared threshold):
 
   | scenario              | Rules @0.05     | ML @~0.30       |
   |-----------------------|-----------------|-----------------|
-  | card_testing          | 0.850 ± 0.042   | 0.951 ± 0.034   |
-  | account_takeover      | 0.853 ± 0.038   | 0.907 ± 0.018   |
-  | impossible_travel     | 0.774 ± 0.055   | 0.871 ± 0.063   |
-  | stolen_spree          | 0.824 ± 0.066   | 0.909 ± 0.037   |
-  | hard-neg seq FP rate  | 0.625 ± 0.026   | 0.818 ± 0.046   |
+  | card_testing          | 0.850 ± 0.042   | 0.950 ± 0.036   |
+  | account_takeover      | 0.860 ± 0.036   | 0.909 ± 0.019   |
+  | impossible_travel     | 0.774 ± 0.055   | 0.837 ± 0.065   |
+  | stolen_spree          | 0.824 ± 0.066   | 0.907 ± 0.033   |
+  | hard-neg seq FP rate  | 0.625 ± 0.026   | 0.807 ± 0.056   |
   | hard-neg naive FP rate| 0.743 ± 0.030   | 0.743 ± 0.030   |
 
 Real story: ML achieves higher recall across all scenarios; rules have a
-meaningfully lower hard-negative FP rate (0.625 vs 0.818). The rules scorer
+meaningfully lower hard-negative FP rate (0.625 vs 0.807). The rules scorer
 runs at threshold=0.05 (aggressive). This is a precision/recall frontier
 trade-off, not ML dominance.
 

@@ -135,3 +135,56 @@ def test_F4_amount_usd_correct(featured, rates):
     for r in featured:
         expected = float(r["amount"]) * rates[r["currency"]]
         assert abs(r["amount_usd"] - round(expected, 4)) < 0.01
+
+
+def test_F_country_change_includes_ip_country(rates):
+    """The unified country-change feature fires on IP-country movement even
+    when merchant_country stays unchanged. This is the account-takeover signal:
+    a home-country online purchase from a foreign IP."""
+    from fraud_eval import profile as prof
+
+    rows = [
+        {
+            "txn_id": "txn_1",
+            "card_id": "card_1",
+            "timestamp": "2025-01-01T10:00:00",
+            "amount": 10.0,
+            "currency": "USD",
+            "merchant_id": "mer_1",
+            "merchant_category": "grocery",
+            "merchant_country": "US",
+            "device_id": "dev_home",
+            "ip_country": "US",
+            "entry_mode": "chip",
+            "is_fraud": 0,
+            "scenario": "legit",
+        },
+        {
+            "txn_id": "txn_2",
+            "card_id": "card_1",
+            "timestamp": "2025-01-01T10:05:00",
+            "amount": 50.0,
+            "currency": "USD",
+            "merchant_id": "mer_2",
+            "merchant_category": "electronics",
+            "merchant_country": "US",
+            "device_id": "dev_new",
+            "ip_country": "GB",
+            "entry_mode": "online",
+            "is_fraud": 1,
+            "scenario": "account_takeover",
+        },
+    ]
+    profiles = prof.build_profiles(rows, rates)
+    featured = feat.build_features(rows, profiles, rates)
+
+    assert featured[0]["is_country_change"] == 0
+    assert featured[1]["is_country_change"] == 1
+
+
+def test_F_account_takeover_rows_expose_country_change(featured):
+    """Generated account-takeover rows carry the foreign-IP signal through
+    features, so the rule scorer can see the documented fingerprint."""
+    takeover = [r for r in featured if r["scenario"] == "account_takeover"]
+    assert takeover, "fixture contains no account_takeover rows"
+    assert any(int(r["is_country_change"]) for r in takeover)

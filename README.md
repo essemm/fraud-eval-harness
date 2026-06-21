@@ -92,7 +92,8 @@ Randomness is seeded; the same `--seed` produces byte-identical output.
 python -m pytest tests/ -q
 ```
 
-33 tests, one per acceptance criterion in the brief, run entirely in memory.
+36 tests covering the brief's acceptance criteria and regression checks run
+entirely in memory.
 
 ---
 
@@ -118,15 +119,15 @@ Figures below are **mean ± sample standard deviation over 6 independent seeds**
 
 | Scenario | Rules (@ thr 0.05) | ML (@ thr ~0.30) |
 |---|---|---|
-| Card testing | 0.850 ± 0.042 | 0.951 ± 0.034 |
-| Account takeover | 0.853 ± 0.038 | 0.907 ± 0.018 |
-| Impossible travel | 0.774 ± 0.055 | 0.871 ± 0.063 |
-| Stolen spree | 0.824 ± 0.066 | 0.909 ± 0.037 |
+| Card testing | 0.850 ± 0.042 | 0.950 ± 0.036 |
+| Account takeover | 0.860 ± 0.036 | 0.909 ± 0.019 |
+| Impossible travel | 0.774 ± 0.055 | 0.837 ± 0.065 |
+| Stolen spree | 0.824 ± 0.066 | 0.907 ± 0.033 |
 
-ML achieves higher recall on all four scenarios. That is the cost of running at
-a lower threshold (0.05 vs ~0.30): the rules scorer flags a larger fraction of
-the card population, accepting more false alarms in exchange for catching more
-fraud.
+ML achieves higher recall on all four scenarios. The raw thresholds are not
+directly comparable because the scorers use different score scales; at their own
+operating points, ML trades more hard-negative false positives for more fraud
+recall.
 
 **Hard-negative false-positive rate** — the clearest measure of whether
 sequence context earns its keep. Hard-negative cards are by construction the
@@ -136,16 +137,17 @@ legitimate accounts most likely to be confused with fraud:
 |---|---|
 | Rules (sequence-aware) | **0.625 ± 0.026** |
 | Naive single-row amount threshold | 0.743 ± 0.030 |
-| ML (sequence-aware) | 0.818 ± 0.046 |
+| ML (sequence-aware) | 0.807 ± 0.056 |
 
 The rules scorer sits 12 points below the naive baseline — it earns its
-complexity. The ML scorer sits 7 points above it: at its own operating point,
+complexity. The ML scorer sits 6 points above it: at its own operating point,
 the model flags more hard-negative cards than a simple amount threshold would.
 This is not a failure of the sequence features; it is a consequence of the ML
-model's higher recall. The explicit fingerprints in the rules — country-change
-within three hours, velocity burst above a count threshold — are designed to
-fire on fraud sequences and not on their near-twins. A linear classifier that
-cannot express those exact conditions trades hard-negative precision for recall.
+model's higher recall. The explicit fingerprints in the rules — merchant/IP
+country-change within three hours, velocity burst above a count threshold — are
+designed to fire on fraud sequences and not on their near-twins. A linear
+classifier that cannot express those exact conditions trades hard-negative
+precision for recall.
 
 The two cost models (fixed 20:1 vs. amount-weighted) prefer different operating
 thresholds — surfaced as a business decision, not resolved by the harness.

@@ -48,6 +48,25 @@ def test_S3_aggregation_methods_differ(scored_rows):
     assert mx_scores != ds_scores
 
 
+def test_rule_takeover_uses_unified_country_change():
+    """The takeover rule fires when a new device pairs with the unified
+    merchant/IP country-change flag and a high-risk category."""
+    row = {
+        "velocity_1h": 0,
+        "amount_vs_trailing_median": 1.0,
+        "trailing_low_confidence": 0,
+        "secs_since_prev": 300,
+        "is_new_device": 1,
+        "is_country_change": 1,
+        "merchant_category": "electronics",
+    }
+
+    scored = scr.RuleScorer().score_row(row)
+
+    assert scored["score"] == 0.8
+    assert scored["reason"].startswith("takeover_pattern:")
+
+
 # --- evaluation -----------------------------------------------------------
 
 def _metrics(scored_rows, scored_cards):

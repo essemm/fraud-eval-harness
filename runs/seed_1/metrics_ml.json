@@ -1,0 +1,88 @@
+{
+  "params": {
+    "fn_fp_ratio": 20.0,
+    "fp_review_cost": 5.0,
+    "threshold_step": 0.05,
+    "target_recall": 0.9,
+    "reference_threshold": 0.5,
+    "n_cards": 3000,
+    "n_fraud_cards": 297,
+    "n_rows": 167455
+  },
+  "operating_point": {
+    "fixed_ratio": {
+      "threshold": 0.3,
+      "cost": 1908.0,
+      "precision": 0.1527,
+      "recall": 0.9394,
+      "degenerate": false
+    },
+    "amount_weighted": {
+      "threshold": 0.15,
+      "cost_usd": 12800.0,
+      "precision": 0.104,
+      "recall": 1.0,
+      "missed_fraud_loss_usd": 0.0,
+      "degenerate": true
+    }
+  },
+  "diagnostics_at_reference": {
+    "threshold": 0.5,
+    "per_scenario_recall": {
+      "card_testing": 0.871,
+      "account_takeover": 0.6136,
+      "impossible_travel": 0.6316,
+      "stolen_spree": 0.5775
+    },
+    "hard_negative_analysis": {
+      "n_hard_neg_cards": 160,
+      "sequence_fp": 74,
+      "sequence_fp_rate": 0.4625,
+      "naive_fp": 113,
+      "naive_fp_rate": 0.7063
+    }
+  },
+  "diagnostics_at_operating_point": {
+    "threshold": 0.3,
+    "per_scenario_recall": {
+      "card_testing": 0.9839,
+      "account_takeover": 0.9205,
+      "impossible_travel": 0.9211,
+      "stolen_spree": 0.9437
+    },
+    "hard_negative_analysis": {
+      "n_hard_neg_cards": 160,
+      "sequence_fp": 137,
+      "sequence_fp_rate": 0.8562,
+      "naive_fp": 113,
+      "naive_fp_rate": 0.7063
+    },
+    "from_cost_model": "fixed_ratio",
+    "fell_back_to_reference": false
+  },
+  "diagnostics_at_target_recall": {
+    "threshold": 0.3,
+    "per_scenario_recall": {
+      "card_testing": 0.9839,
+      "account_takeover": 0.9205,
+      "impossible_travel": 0.9211,
+      "stolen_spree": 0.9437
+    },
+    "hard_negative_analysis": {
+      "n_hard_neg_cards": 160,
+      "sequence_fp": 137,
+      "sequence_fp_rate": 0.8562,
+      "naive_fp": 113,
+      "naive_fp_rate": 0.7063
+    }
+  },
+  "row_level_diagnostic": {
+    "threshold": 0.5,
+    "tp": 1473,
+    "fp": 4046,
+    "tn": 161867,
+    "fn": 69,
+    "precision": 0.2669,
+    "recall": 0.9553
+  }
+}

@@ -1,12 +1,22 @@
 # Project checkpoint — fraud-detection (Sequence-Aware Fraud Detection Eval Harness)
 
-_Last updated: 2026-06-19 (session 4). Pick-up note for resuming, incl. a new chat._
+_Last updated: 2026-06-21 (session 5). Pick-up note for resuming, incl. a new chat._
 
 ## Where we are
 
-Pipeline complete, packaged, tested, documented. **ML scorer added (by Sonnet,
-reviewed) and the rules-vs-ML A/B is done.** README written and tightened.
-Next focus: the **visualiser** (spec drafted below).
+Pipeline complete, packaged, tested, documented. ML scorer added (reviewed) and
+the rules-vs-ML A/B is done. README written and tightened.
+
+**This session (design only, no code yet):** worked out two specs to hand to
+Claude Code, in order. (1) a **multi-seed aggregation harness** to replace the
+noisy single-run per-scenario figures, and (2) the **visualiser**, now reading
+the aggregated output. PROJECT_BRIEF.md updated to match (§3 architecture, new
+§8.1/§8.2, rewritten §12 input contract, new acceptance criteria M1–M4 / V1–V5,
+updated §11 resolved decisions). Both specs are reproduced in full below.
+
+**Next focus: hand spec 1 (multi-seed harness) to Claude Code, then spec 2
+(visualiser) once aggregate.json + per-seed sweep.csv exist.** The visualiser
+cannot run until the harness outputs are on disk, so order matters.
 
 Repo at `/Users/scott/Projects/fraud-detection/`. Package layout:
 `fraud_eval/` holds fx, generate_synthetic, profile, features, scorer (the
@@ -56,46 +66,118 @@ hard-negative numbers (64 cards, stable), not the specific per-scenario figures,
 until averaged over several seeds. Do NOT put specific per-scenario % in the
 README as if fixed.
 
-To make the ML feature improvements more legible, the synthetic test data (test
-doubles) should double both the number of transaction rows and the number of cards.
-More volume reduces per-scenario variance enough that the recall differences between
-rules and ML become signal rather than noise, and the feature coefficients in
-MLScorer stabilise across seeds.
+## Decisions locked this session (the open questions are now closed)
 
-## NEXT: the visualiser (spec)
+- **More CARDS, not more days.** Per-scenario variance is driven by fraud-card
+  count per scenario, not transaction volume. Days only thicken each card's
+  baseline; they do nothing for the per-scenario denominator.
+- **Sizing for ±7-point per-scenario CI:** ~200 fraud cards per scenario →
+  ~800–900 total → **6 seeds × 3,000 cards × fraud-rate 0.10** (~135 fraud
+  cards/run, ~34/scenario/run, pooling to ~200/scenario). Raising fraud-rate is
+  legitimate — evaluate.py still reports cost/precision against whatever
+  imbalance exists.
+- **Multi-seed averaging, measure-then-average:** recall computed per seed, then
+  reported as mean ± **sample** std (statistics.stdev, n−1 — NOT pstdev).
+  Empirical scatter, not a formula CI. This is the defensible artifact.
+- **Train/eval on different seeds** preserved: each eval seed pairs with a
+  distinct train seed. Pairs: (1,101)…(6,106). 12 seeds total.
+- **Framing:** "which scorer owns which attack" (rules-aggressive vs ML-precise),
+  NOT "ML superior." If stabilised means still show a frontier trade-off, that's
+  the finding — report it as such. Expect impossible_travel to have the widest
+  std (low recall near the floor scatters); if still wide at 6 seeds, that's a
+  signal to add seeds, not a bug.
 
-Goal: turn evaluate.py's outputs (sweep.csv, metrics.json) into visuals that make
-the findings legible at a glance. Reads existing artifacts — does NOT re-run the
-pipeline or re-score. A pure consumer of the harness output, which keeps it
-cleanly separate from the stdlib-only pipeline.
+---
 
-Placement: its own `viz/` directory at repo root (NOT inside fraud_eval/), with
-its own dependency (matplotlib). Keeps the pipeline stdlib-only; the visualiser's
-heavier deps stay quarantined. requirements-viz.txt or an extras section.
+## SPEC 1 (do first) — multi-seed A/B aggregation harness
 
-Core plots (priority order):
-  1. Cost-vs-threshold curve — total cost across the sweep, one line per cost
-     model, with the cost-minimum marked. Shows WHY a particular threshold is
-     chosen and the degenerate-at-extremes behaviour.
-  2. Precision-recall curve across the sweep — the threshold-independent view;
-     overlay rules vs ML on the SAME axes for the real A/B (curve dominance, not
-     point comparison). This is the fair scorer comparison.
-  3. Per-scenario recall bar chart — at the operating point; grouped bars
-     rules vs ML. The "catches sprees, misses card-testing" story, visual.
-  4. Hard-negative FP comparison — sequence-aware vs naive bar, the "earns its
-     complexity" point.
+Additive only. Do NOT modify generate_synthetic, profile, features, score,
+score_ml, or evaluate — their interfaces are correct. Two new pieces:
 
-Open questions for the spec discussion:
-  - Static PNG output (matplotlib savefig) vs interactive (HTML/plotly)? Static
-    is simpler, repo-friendly, stdlib-adjacent; interactive is nicer to explore
-    but heavier dep + not as clean in a repo. Lean static unless a reason emerges.
-  - One figure with subplots, or separate files per plot? Separate is more
-    reusable (drop one into a slide/README); subplots tell a single story.
-  - Does it read sweep.csv (simple, per-run) or metrics.json (richer, has the
-    operating points + diagnostics)? Probably metrics.json for the A/B plots,
-    sweep.csv for the curves. May need BOTH a rules metrics.json and an ML one.
-  - A/B plots need two metrics.json (rules + ML) — so the viz CLI likely takes
-    --rules-metrics and --ml-metrics, or globs a directory.
+**`scripts/run_seed.py`** (new `scripts/` dir at repo root — orchestration, not
+pipeline). For one (eval_seed, train_seed) pair, runs the full pipeline twice
+into `runs/seed_<eval_seed>/`:
+  - ensure fx_rates.csv exists (derive from fraud_eval.fx.RATES if no generator:
+    currency,rate_to_usd rows, USD=1.0).
+  - EVAL branch: generate(eval_seed) → profile → features → featured_eval.csv;
+    RuleScorer → scored rows/cards; evaluate → sweep_rules.csv + metrics_rules.json.
+  - TRAIN branch: generate(train_seed) → profile → features → featured_train.csv.
+  - ML: score_ml --train-featured featured_train --featured featured_eval → ML
+    scored rows/cards; evaluate → sweep_ml.csv + metrics_ml.json.
+  - Prefer library calls over -m shelling where functions already return dicts;
+    evaluate.evaluate(...) returns the metrics dict — capture and json.dump it.
+  - Keep --fn-fp-ratio 20 and --fp-review-cost 5 fixed across all seeds so
+    operating points are comparable.
+
+**`fraud_eval/aggregate_runs.py`** (pipeline-adjacent, stdlib-only, no plotting
+dep). CLI: --rules-glob 'runs/seed_*/metrics_rules.json' --ml-glob '..._ml.json'.
+For each scorer, pull from each seed's `diagnostics_at_operating_point`:
+per_scenario_recall (4 scenarios) + hard_negative_analysis (sequence_fp_rate,
+naive_fp_rate); also operating_point.fixed_ratio threshold/precision/recall.
+Compute per scenario per scorer: mean, sample std (statistics.stdev), n_seeds
+contributing (skip None scenarios; report the count). Guard: 1 contributing seed
+→ std = null, NOT 0. Emit runs/aggregate.json (structure: per scorer → n_seeds,
+operating_point{threshold/precision/recall mean+std}, per_scenario_recall{scenario
+→ mean,std,n}, hard_negative{sequence_fp_rate, naive_fp_rate → mean,std}). Also
+print a plain text mean±std table to stdout.
+
+Acceptance: A1 metrics files have populated diagnostics_at_operating_point; A2
+train≠eval every pair; A3 n=6 where present in all, lower where absent, std=null
+only single-seed; A4 sample std (hand-check one scenario's 6 values); A5 existing
+27 tests still pass untouched.
+
+Reviewer watch-items: (1) evaluate() must run on ML scored cards with the SAME
+ratio/review-cost as rules — comparability is the whole point, easy to get subtly
+wrong. (2) impossible_travel std expected highest; large value = add seeds, not a
+bug.
+
+---
+
+## SPEC 2 (do after aggregate.json exists) — visualiser (viz/)
+
+Four committed PNGs, static (matplotlib) primary; Plotly --interactive is a
+later follow-up, NOT part of acceptance. Lives in viz/ at repo root, own dep in
+viz/requirements-viz.txt. Pure consumer — never re-runs pipeline or re-scores.
+
+**Input split (deviation from old brief §12, now reconciled in the brief):**
+  - Plots 1 & 2 (curves) read ONE representative seed's sweep_rules.csv +
+    sweep_ml.csv (use seed 1). Stated on the figure. No error bars — a curve is
+    a per-run object.
+  - Plots 3 & 4 (bars) read runs/aggregate.json. Bar height = mean, ERROR BAR =
+    sample std across seeds. These are the ONLY plots with error bars.
+
+CLI: python -m viz.make_plots --rules-sweep runs/seed_1/sweep_rules.csv
+--ml-sweep runs/seed_1/sweep_ml.csv --aggregate runs/aggregate.json --out-dir
+viz/figures/. Separate PNG per plot: 01_cost_vs_threshold.png …
+04_hard_negative_fp.png.
+
+  1. Cost vs threshold — x=threshold, two cost lines, minima marked. Fixed-ratio
+     (unitless) and amount-weighted (dollars) differ by orders of magnitude →
+     STACKED PANELS sharing x-axis, NOT a twin y-axis (buries one curve). Repr.
+     seed, labelled.
+  2. Precision-recall, scorers overlaid on SAME axes; each operating point
+     marked. Repr. seed, labelled.
+  3. Per-scenario recall — grouped bars (4 scenarios × rules/ML), mean ± sd over
+     6 seeds. Caption = "which scorer owns which attack," NOT "ML wins." Note n
+     under groups if it varies.
+  4. Hard-negative FP — sequence-aware vs naive, mean ± sd. Lower better, tight
+     bars expected.
+
+Style: colourblind-safe, IDENTICAL rules/ML colour across all 4 figs. Provenance
+on every fig (1–2 "representative seed N"; 3–4 "mean ± 1 sd over 6 seeds").
+null-std scenario → no error bar + caveat, never a zero bar. Word "accuracy"
+appears nowhere.
+
+Acceptance: V1 four standalone PNGs; V2 error bars from aggregate.json std,
+null-std handled; V3 identical colour map; V4 matplotlib confined to viz/
+(grep fraud_eval/ imports); V5 viz imports no pipeline scorer/generator; V6 no
+"accuracy" in any title/axis/caption.
+
+Reviewer watch-item: plot 1 dual-cost y-axis is the easy mistake — if Claude Code
+reaches for twin y, check neither minimum is visually buried; stacked panels are
+the honest render.
+
+---
 
 ## Outstanding to-do (from earlier, may already be done)
 
@@ -103,10 +185,9 @@ Open questions for the spec discussion:
   root-level score.py).
 - Confirm 27 tests pass in place: `python -m pytest tests/ -q`.
 - Commit ML scorer + evaluate.py operating-point change.
-- **Double the test-double data volume**: increase both transaction row count and
-  card count in the synthetic generator (generate_synthetic.py / test fixtures) to
-  reduce per-scenario noise and better demonstrate the ML feature improvements
-  (see caveat above).
+- **Data-volume question is now RESOLVED** — superseded by Spec 1's multi-seed
+  approach (6 × 3,000 cards × fraud-rate 0.10, cards not days). No generator code
+  change needed; volume comes from run invocation, variance from seed averaging.
 
 ## Key context
 

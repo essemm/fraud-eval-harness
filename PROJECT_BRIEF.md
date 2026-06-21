@@ -112,12 +112,24 @@ amounts to USD via the shared `fx.to_usd` helper.
 | `fx.py` | Shared currency→USD conversion helper | — | — (library) |
 | `profile.py` | Normalise to USD; aggregate transactions into a per-card baseline dimension | `transactions.csv`, `fx_rates.csv` | `card_profiles.csv` |
 | `features.py` | Normalise to USD; join transactions to profiles; compute sequence deltas and trailing baseline | `transactions.csv`, `fx_rates.csv`, `card_profiles.csv` | featured rows (in-memory or CSV) |
-| `score.py` | Per-row score + reason; aggregate to card-level decision | featured rows | scored rows |
-| `evaluate.py` | Cost-weighted threshold sweep; per-scenario metrics | scored rows + labels | metrics report |
+| `score.py` | Per-row score + reason (RuleScorer); aggregate to card-level decision | featured rows | scored rows |
+| `score_ml.py` | ML scorer (logistic regression) behind the same `Scorer` protocol; trains out-of-sample | featured rows (train + eval) | scored rows |
+| `evaluate.py` | Cost-weighted threshold sweep; per-scenario + operating-point diagnostics | scored rows + labels | `sweep.csv`, `metrics.json`, text report |
+| `scripts/run_seed.py` | Orchestration: run the full pipeline (rules + ML) for one (eval, train) seed pair | — | per-seed `sweep_*.csv`, `metrics_*.json` |
+| `aggregate_runs.py` | Pool per-seed metrics into mean ± sample-std per scenario | per-seed `metrics_*.json` | `aggregate.json` |
+| `viz/make_plots.py` | Render the four committed PNGs from sweep + aggregate artifacts | `sweep_*.csv`, `aggregate.json` | PNGs |
 
-**Swap contract:** only `score.py` changes when the rule baseline is replaced by
-an ML model. `features.py` and `evaluate.py` are untouched. This is what makes
-the baseline-vs-model comparison a fair test.
+**Swap contract:** only the scorer changes when the rule baseline is replaced by
+an ML model. `RuleScorer` (`score.py`) and `MLScorer` (`score_ml.py`) both
+satisfy the `Scorer` protocol (`scorer.py`); `features.py` and `evaluate.py` are
+untouched. This is what makes the baseline-vs-model comparison a fair test.
+
+**Layering:** `generate_synthetic`, `fx`, `profile`, `features`, `score`,
+`score_ml`, `scorer`, `evaluate`, and `aggregate_runs` form the pipeline package
+`fraud_eval/` (stdlib-only, plus scikit-learn for `score_ml`). `scripts/` holds
+orchestration that calls the package but is not part of it. `viz/` is a separate
+consumer with its own plotting dependency (§12). Nothing in `fraud_eval/` imports
+matplotlib.
 
 ---
 
@@ -318,6 +330,56 @@ The centrepiece. Takes scored rows plus ground-truth labels and produces:
 report accuracy as a headline metric; at the project's class imbalance it is
 actively misleading and the brief should say so.
 
+### 8.1 Operating-point diagnostics (decision)
+
+Diagnostics (per-scenario recall, hard-negative FP) are reported at three stated
+threshold reference points, never at the raw cost-minimiser alone:
+
+- a fixed **reference** threshold (0.50), a neutral midpoint;
+- the **operating point** — each scorer's own fixed-ratio cost-minimising
+  threshold, with a degeneracy fallback to the reference if that minimum flags
+  ~everything;
+- the **target-recall** point — the tightest threshold still achieving a target
+  recall (0.90).
+
+The operating-point block is the fair basis for comparing two scorers whose
+scores are distributed differently: a calibrated ML probability and a hand-tuned
+rule score do **not** mean the same thing at a shared 0.50, so comparing them
+there is misleading. Each scorer is judged at the threshold it would actually run
+at. This is the central A/B insight and the most interview-relevant property of
+the harness.
+
+### 8.2 Multi-seed evaluation (decision)
+
+Per-scenario recall on a single run is too noisy to report or commit. With four
+scenarios drawn uniformly, a run of N fraud cards yields ~N/4 cards per scenario;
+at the original ~30 fraud cards that is ~7–8 per scenario, whose recall estimate
+carries a 95% CI of roughly ±35 points. Specific per-scenario percentages from a
+single run must not be presented as fixed.
+
+The resolution is **multi-seed averaging**: run the full pipeline over several
+seeds and report each per-scenario recall as **mean ± sample standard deviation**
+across seeds. Sizing target: per-scenario 95% CI half-width ≤ 7 points, which at
+p≈0.5 needs ~200 fraud cards per scenario. The settled configuration is **6 eval
+seeds × 3,000 cards × fraud-rate 0.10**, each eval seed paired with a **distinct
+train seed** so the ML scorer is always trained out-of-sample (preserving the
+no-leakage decision). Seed pairs (eval, train): (1,101)…(6,106).
+
+- `scripts/run_seed.py` runs one (eval, train) pair end-to-end for both scorers,
+  emitting per-seed `sweep_*.csv` and `metrics_*.json`.
+- `aggregate_runs.py` pools the per-seed `metrics.json` (reading the
+  `diagnostics_at_operating_point` block) into `aggregate.json`: per scenario per
+  scorer, the mean, the **sample** standard deviation (`statistics.stdev`, the
+  n−1 form — never `pstdev`), and the contributing seed count. A scenario absent
+  in a seed is skipped, not zero-filled; a single-seed scenario reports std as
+  `null`, not `0`.
+
+Framing requirement: the stabilised result is *which scorer owns which attack*
+(rules-aggressive vs ML-precise), not "ML superior." If the means still show a
+precision/recall frontier trade-off rather than dominance, that is the finding.
+The hard-negative comparison is the most stable figure (highest card count) and
+the cleanest "earns its complexity" evidence.
+
 ---
 
 ## 9. Non-functional requirements
@@ -390,6 +452,28 @@ Each criterion below is directly translatable to a test case.
 - E3. The reported cost-minimising threshold actually minimises total cost over
   the swept range under the active cost model.
 - E4. Accuracy does not appear as a headline metric.
+- E5. Operating-point diagnostics fall back to the reference threshold when the
+  cost-minimiser is degenerate, and record that they did.
+
+**Multi-seed aggregation**
+- M1. Every (eval, train) seed pair has distinct eval and train seeds
+  (out-of-sample ML training; no leakage).
+- M2. `aggregate_runs.py` reports the contributing seed count per scenario;
+  scenarios absent in a seed are skipped, not zero-filled.
+- M3. Sample standard deviation (`statistics.stdev`, n−1) is used, not population
+  std; a single-seed scenario reports std as `null`, not `0`.
+- M4. Aggregation reads the `diagnostics_at_operating_point` block, so the
+  pooled figures are at each scorer's own operating point.
+
+**Visualiser**
+- V1. Four PNGs are produced, each standalone and README-embeddable.
+- V2. Bar plots (3–4) draw error bars from `aggregate.json` std; a `null`-std
+  scenario renders no bar with a caveat, not a zero-height bar.
+- V3. No `fraud_eval/` module imports matplotlib; the plotting dependency is
+  confined to `viz/` and declared in `viz/requirements-viz.txt`.
+- V4. The visualiser imports/invokes no pipeline scorer or generator — it is a
+  pure artifact consumer.
+- V5. "Accuracy" appears in no figure title, axis, or caption.
 
 ---
 
@@ -409,17 +493,30 @@ resolution so the rationale survives.
 - **Trailing-baseline window:** **time-based** (trailing 1h / 24h velocity), not
   count-based. The time windows were already needed for the velocity signal.
 
+- **Operating-point diagnostics:** built (§8.1). `evaluate.py` reports per-scenario
+  recall and hard-negative FP at three stated points — the fixed reference
+  (0.50), each scorer's cost-minimising operating point (with degeneracy
+  fallback), and the target-recall point. The operating-point block is the fair
+  basis for the rules-vs-ML A/B.
+- **Per-scenario stability:** resolved by multi-seed averaging (§8.2). Figures are
+  reported as mean ± sample-std over 6 seeds; single-run per-scenario
+  percentages are not committed.
+- **Visualiser output policy:** static PNGs are the committed, README-embedded
+  artifact; Plotly `--interactive` is an optional local-exploration backend
+  (§12).
+
 ### Still open / minor
 
-- `evaluate.py` reports diagnostics at a fixed reference threshold (0.50) and at
-  each scorer's cost-minimising operating point; the reference value is
-  hard-coded and could be exposed as a CLI argument.
+- The reference threshold (0.50) in `evaluate.py` is hard-coded and could be
+  exposed as a CLI argument.
+- The visualiser's `--interactive` Plotly backend is specified but the static
+  PNG path is built first; interactive is a follow-up, not part of acceptance.
 
 ---
 
 ## 12. Visualiser
 
-The visualiser turns the harness outputs (`sweep.csv`, `metrics.json`) into
+The visualiser turns the harness outputs (`sweep.csv`, `aggregate.json`) into
 plots. It is a pure **consumer** of those artifacts: it never re-runs the
 pipeline, re-scores, or touches the source data. That separation keeps the
 pipeline stdlib-only and deterministic while the visualiser carries its own
@@ -445,21 +542,44 @@ stays true — a reader who only wants the harness never installs it.
   (matplotlib `savefig` vs Plotly `write_html`), so both backends are cheap to
   maintain.
 
+**Input contract (decision):** the two plot families take different inputs,
+because they answer different questions at different stabilities.
+
+- **Curve plots (1–2)** read a single representative seed's `sweep_*.csv` (one
+  rules, one ML). A threshold curve is a per-run object; averaging curves across
+  seeds adds machinery the portfolio point does not need. The representative
+  seed is stated on the figure.
+- **Bar plots (3–4)** read `aggregate.json` (§8.2): bar height = mean across
+  seeds, **error bar = sample standard deviation across seeds**. These are the
+  only plots with error bars, since only they aggregate across seeds.
+
+This supersedes the earlier "one `metrics.json` per scorer" contract: the
+stable per-scenario figures now live in `aggregate.json`, not in any single run's
+`metrics.json`.
+
 **Plots (priority order):**
 1. **Cost vs threshold** — total cost across the sweep, one line per cost model,
    minimum marked. Shows why a threshold is chosen and the degenerate
-   flag-everything behaviour at extreme ratios.
+   flag-everything behaviour at extreme ratios. Fixed-ratio cost (unitless) and
+   amount-weighted cost (dollars) differ by orders of magnitude: render as
+   stacked panels sharing the x-axis, not a twin y-axis that buries one curve.
+   Single representative seed; labelled.
 2. **Precision-recall curve, scorers overlaid** — the threshold-independent
    comparison. The fair rules-vs-ML view: curve dominance, not a point
-   comparison at a shared (and misleading) threshold.
+   comparison at a shared (and misleading) threshold. Each scorer's operating
+   point marked on its curve. Single representative seed; labelled.
 3. **Per-scenario recall** — grouped bars, rules vs ML, at each scorer's own
-   operating point (§8). Carries the caveat that these bars are noisy at low
-   fraud-card counts.
+   operating point (§8.1), with error bars. Mean ± 1 sd over 6 seeds. Titled and
+   captioned as the "which scorer owns which attack" trade-off, not "ML wins."
 4. **Hard-negative false-positive rate** — sequence-aware vs naive single-row
-   baseline; the most stable comparison and the "earns its complexity" point.
+   baseline, with error bars; the most stable comparison and the "earns its
+   complexity" point.
 
-The A/B plots (2-4) consume one `metrics.json` per scorer, so the visualiser
-takes a rules-metrics and an ml-metrics input.
+Every figure carries provenance: plots 1–2 state "representative seed N"; plots
+3–4 state "mean ± 1 sd over 6 seeds." A scenario whose std is `null` (single
+seed) renders without an error bar and a noted caveat, never as a zero-height
+bar. Accuracy appears in no title, axis, or caption (E4 extends to the visuals).
+Colour mapping for rules vs ML is identical across all four figures.
 
 ---
 

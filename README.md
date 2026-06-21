@@ -18,13 +18,18 @@ The deliverable is not a fraud model. It is the harness that tells you whether
 
 ## Architecture
 
-Six modules connected by CSV interfaces, each independently runnable and
-testable.
+The pipeline is a package of modules connected by CSV interfaces, each
+independently runnable and testable.
 
 ```
-generate_synthetic.py  -->  transactions.csv  --+--> profile.py  --\
-                            (native currency)    |                   +--> features.py --> score.py --> evaluate.py
-                       fx_rates.csv  -----------+--> features.py --/
+generate_synthetic.py  -->  transactions.csv  --+
+                            (native currency)    |
+                       fx_rates.csv  ------------+--> profile.py   --> card_profiles.csv --+
+                                                 |                                          |
+                                                 +--> features.py <-------------------------+
+                                                          |
+                                                          v
+                                            score.py / score_ml.py --> evaluate.py
 ```
 
 | Module | Responsibility |
@@ -35,10 +40,13 @@ generate_synthetic.py  -->  transactions.csv  --+--> profile.py  --\
 | `features.py` | Sequence deltas, trailing point-in-time baseline, profile join |
 | `scorer.py` | `Scorer` protocol — the interface seam for the ML swap-in |
 | `score.py` | `RuleScorer`: five transparent rules + card-level aggregation |
-| `evaluate.py` | Threshold sweep, cost models, per-scenario recall, hard-negative analysis |
+| `score_ml.py` | `MLScorer`: logistic regression behind the same protocol, trained out-of-sample |
+| `evaluate.py` | Threshold sweep, cost models, per-scenario recall, operating-point diagnostics, hard-negative analysis |
 
-**Swap contract:** only `score.py` changes when an ML model replaces the rule
-baseline; `features.py` and `evaluate.py` are untouched.
+**Swap contract:** only the scorer changes when the ML model replaces the rule
+baseline. `RuleScorer` and `MLScorer` both satisfy the `Scorer` protocol;
+`features.py` and `evaluate.py` are untouched. This is what makes the
+rules-vs-ML comparison a fair test.
 
 ---
 
@@ -88,28 +96,46 @@ python -m pytest tests/ -q
 
 ---
 
-## Sample results (1,000 cards, threshold 0.50)
+## Rules vs ML: the central finding
 
-Figures from one representative run; reproducible with a fixed `--seed`.
+The rule baseline and an ML scorer (`score_ml.py`, logistic regression trained
+on a different seed from the evaluation data) are compared on the **same**
+harness. The result is not "one wins": at each scorer's own cost-minimising
+operating point, the two sit at **different points on the precision/recall
+frontier**. The rule baseline runs aggressive — higher recall, more false alarms;
+the ML scorer runs precise — fewer false alarms, lower recall. Which you prefer
+is a function of the cost model, which is exactly the trade-off the harness is
+built to surface.
 
-Per-scenario recall — reported separately because a blended number hides the spread:
+Comparing the two at a single shared threshold (e.g. 0.50) is misleading: a
+calibrated ML probability and a hand-tuned rule score do not mean the same thing
+at the same number. `evaluate.py` therefore reports diagnostics at each scorer's
+own operating point, not at a shared threshold.
 
-| Scenario | Recall |
+Per-scenario recall is reported separately for each attack type — a blended
+number hides that a detector may catch sprees and miss card-testing. Because
+per-scenario figures are noisy at low fraud-card counts, they are reported as
+**mean ± standard deviation across multiple seeds** rather than as single-run
+percentages. _(The multi-seed aggregation and the plotted figures are the
+current work in progress; the stabilised per-scenario table will be added here
+once that run completes.)_
+
+The most stable comparison is the hard-negative false-positive rate — the
+legitimate-but-fraud-looking accounts. On a representative run, the
+sequence-aware scorer holds the hard-negative FP rate to a small fraction of
+what a naive single-row amount threshold produces:
+
+| | FP rate on hard negatives |
 |---|---|
-| card_testing | 56% |
-| account_takeover | 25% |
-| impossible_travel | 22% |
-| stolen_spree | 56% |
+| Sequence-aware (this project) | ~3% |
+| Naive single-row amount threshold | ~68% |
 
-Hard-negative false-positive rate, sequence-aware scorer vs. a naive single-row threshold:
+This is the "earns its complexity" result: the sequence approach exists to
+separate fraud from its near-twins, and this is the measurement that shows it
+doing so.
 
-| | False positives | FP rate |
-|---|---|---|
-| Sequence-aware (this project) | 2 / 66 | **3%** |
-| Naive single-row amount threshold | 45 / 66 | **68%** |
-
-The two cost models (fixed 20:1 vs. amount-weighted) prefer different thresholds
-(0.50 vs. 0.05) — surfaced as a business decision, not resolved by the harness.
+The two cost models (fixed 20:1 vs. amount-weighted) prefer different operating
+thresholds — surfaced as a business decision, not resolved by the harness.
 
 ---
 
@@ -130,9 +156,23 @@ The two cost models (fixed 20:1 vs. amount-weighted) prefer different thresholds
 
 ---
 
-## Next: ML scorer swap-in
+## Running the ML scorer
 
-`fraud_eval/score_ml.py` will implement `Scorer` with a scikit-learn model
-(logistic regression or gradient-boosted tree) trained on population-wide
-featured rows, dropping into `evaluate.py` unchanged for a direct rules-vs-ML
-comparison on recall, precision, and cost.
+The ML scorer trains out-of-sample — on data generated with a different seed
+from the evaluation set — so it is never evaluated on rows it learned from:
+
+```bash
+# generate + feature a training set on one seed, an eval set on another
+python -m fraud_eval.generate_synthetic --seed 101 --cards 3000 --out transactions_train.csv
+python -m fraud_eval.generate_synthetic --seed 1   --cards 3000 --out transactions_eval.csv
+# (profile + features each, producing featured_train.csv and featured_eval.csv)
+
+python -m fraud_eval.score_ml \
+    --train-featured featured_train.csv --featured featured_eval.csv \
+    --row-out scored_rows_ml.csv --card-out scored_cards_ml.csv
+
+python -m fraud_eval.evaluate --rows scored_rows_ml.csv --cards scored_cards_ml.csv
+```
+
+The ML scored output drops into `evaluate.py` unchanged — the same harness, the
+same cost models — which is what makes the rules-vs-ML comparison fair.

@@ -1,20 +1,21 @@
 # Project checkpoint — fraud-detection (Sequence-Aware Fraud Detection Eval Harness)
 
-_Last updated: 2026-06-21 (session 6). Pick-up note for resuming, incl. a new chat._
+_Last updated: 2026-06-21 (session 7). Pick-up note for resuming, incl. a new chat._
 
 ## Where we are
 
 Pipeline complete. Multi-seed aggregation harness complete and run (6 seeds).
-Visualiser complete (4 PNGs committed). README needs updating with final figures
-and multi-seed A/B findings.
+Visualiser complete (4 PNGs committed). README has been updated with the final
+multi-seed A/B findings and embedded figure references.
 
 **SPEC 1 — DONE.** `scripts/run_seed.py` + `fraud_eval/aggregate_runs.py` built
 and verified. 6-seed run complete; `runs/aggregate.json` on disk.
 
 **SPEC 2 — DONE.** `viz/make_plots.py` built and run. Four PNGs in `viz/figures/`.
 
-**Next focus:** Update README with the final multi-seed A/B findings and embed
-the four committed PNGs.
+**Next focus:** No known handoff-critical work remains. Good next tasks are
+portfolio polish, fresh verification before publishing, or adding optional
+follow-up features from `PROJECT_BRIEF.md`.
 
 Repo at `/Users/scott/Projects/fraud-detection/`. Package layout:
 `fraud_eval/` holds fx, generate_synthetic, profile, features, scorer (the
@@ -79,6 +80,8 @@ See "Multi-seed A/B findings" section above for results.
 
 ---
 
+## SPEC 2 — DONE (visualisation artifacts)
+
 `viz/make_plots.py` built and run. Four PNGs in `viz/figures/`.
 All acceptance criteria met (V1–V6). See viz/figures/ for output.
 
@@ -86,11 +89,12 @@ All acceptance criteria met (V1–V6). See viz/figures/ for output.
 
 ## Outstanding to-do
 
-- `git rm OLD_score_DELETE_ME.py` if not yet done (stale duplicate of old
-  root-level score.py).
-- Confirm 27 tests pass in place: `python -m pytest tests/ -q`.
-- Commit ML scorer + evaluate.py operating-point change.
-- **Data-volume question is now RESOLVED** — superseded by Spec 1's multi-seed
+- No known stale cleanup remains from session 6. `OLD_score_DELETE_ME.py` is not
+  present in the repo, and the README now carries the final figures and
+  multi-seed findings.
+- Before publishing or presenting, re-run `python -m pytest tests/ -q` and, if
+  regenerating figures, re-run `python -m viz.make_plots`.
+- **Data-volume question is resolved** — superseded by Spec 1's multi-seed
   approach (6 × 3,000 cards × fraud-rate 0.10, cards not days). No generator code
   change needed; volume comes from run invocation, variance from seed averaging.
 

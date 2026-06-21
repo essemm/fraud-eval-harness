@@ -92,7 +92,7 @@ Randomness is seeded; the same `--seed` produces byte-identical output.
 python -m pytest tests/ -q
 ```
 
-27 tests, one per acceptance criterion in the brief, run entirely in memory.
+33 tests, one per acceptance criterion in the brief, run entirely in memory.
 
 ---
 
@@ -102,40 +102,77 @@ The rule baseline and an ML scorer (`score_ml.py`, logistic regression trained
 on a different seed from the evaluation data) are compared on the **same**
 harness. The result is not "one wins": at each scorer's own cost-minimising
 operating point, the two sit at **different points on the precision/recall
-frontier**. The rule baseline runs aggressive — higher recall, more false alarms;
-the ML scorer runs precise — fewer false alarms, lower recall. Which you prefer
-is a function of the cost model, which is exactly the trade-off the harness is
-built to surface.
+frontier**. Which you prefer depends on the cost model — which is exactly the
+trade-off the harness is built to surface.
 
 Comparing the two at a single shared threshold (e.g. 0.50) is misleading: a
 calibrated ML probability and a hand-tuned rule score do not mean the same thing
-at the same number. `evaluate.py` therefore reports diagnostics at each scorer's
-own operating point, not at a shared threshold.
+at the same number. `evaluate.py` reports diagnostics at each scorer's own
+operating point, not a shared one.
 
 Per-scenario recall is reported separately for each attack type — a blended
-number hides that a detector may catch sprees and miss card-testing. Because
-per-scenario figures are noisy at low fraud-card counts, they are reported as
-**mean ± standard deviation across multiple seeds** rather than as single-run
-percentages. _(The multi-seed aggregation and the plotted figures are the
-current work in progress; the stabilised per-scenario table will be added here
-once that run completes.)_
+number hides that a detector may catch sprees and miss card-testing entirely.
+Figures below are **mean ± sample standard deviation over 6 independent seeds**
+(3,000 cards each, 10% fraud rate, seed pairs (1,101)…(6,106) via
+`scripts/run_seed.py` and `fraud_eval/aggregate_runs.py`):
 
-The most stable comparison is the hard-negative false-positive rate — the
-legitimate-but-fraud-looking accounts. On a representative run, the
-sequence-aware scorer holds the hard-negative FP rate to a small fraction of
-what a naive single-row amount threshold produces:
+| Scenario | Rules (@ thr 0.05) | ML (@ thr ~0.30) |
+|---|---|---|
+| Card testing | 0.850 ± 0.042 | 0.951 ± 0.034 |
+| Account takeover | 0.853 ± 0.038 | 0.907 ± 0.018 |
+| Impossible travel | 0.774 ± 0.055 | 0.871 ± 0.063 |
+| Stolen spree | 0.824 ± 0.066 | 0.909 ± 0.037 |
 
-| | FP rate on hard negatives |
+ML achieves higher recall on all four scenarios. That is the cost of running at
+a lower threshold (0.05 vs ~0.30): the rules scorer flags a larger fraction of
+the card population, accepting more false alarms in exchange for catching more
+fraud.
+
+**Hard-negative false-positive rate** — the clearest measure of whether
+sequence context earns its keep. Hard-negative cards are by construction the
+legitimate accounts most likely to be confused with fraud:
+
+| Approach | FP rate on hard-negative cards |
 |---|---|
-| Sequence-aware (this project) | ~3% |
-| Naive single-row amount threshold | ~68% |
+| Rules (sequence-aware) | **0.625 ± 0.026** |
+| Naive single-row amount threshold | 0.743 ± 0.030 |
+| ML (sequence-aware) | 0.818 ± 0.046 |
 
-This is the "earns its complexity" result: the sequence approach exists to
-separate fraud from its near-twins, and this is the measurement that shows it
-doing so.
+The rules scorer sits 12 points below the naive baseline — it earns its
+complexity. The ML scorer sits 7 points above it: at its own operating point,
+the model flags more hard-negative cards than a simple amount threshold would.
+This is not a failure of the sequence features; it is a consequence of the ML
+model's higher recall. The explicit fingerprints in the rules — country-change
+within three hours, velocity burst above a count threshold — are designed to
+fire on fraud sequences and not on their near-twins. A linear classifier that
+cannot express those exact conditions trades hard-negative precision for recall.
 
 The two cost models (fixed 20:1 vs. amount-weighted) prefer different operating
 thresholds — surfaced as a business decision, not resolved by the harness.
+
+### Figures
+
+![Cost vs threshold](viz/figures/01_cost_vs_threshold.png)
+
+*Cost vs decision threshold (representative seed 1). Stacked panels because the
+two y-scales differ by orders of magnitude. Dashed lines mark each scorer's
+cost-minimising threshold.*
+
+![Precision–recall curve](viz/figures/02_precision_recall.png)
+
+*Precision–recall curve (representative seed 1). Each scorer's operating point
+is marked at its own cost-minimising threshold, not a shared one.*
+
+![Per-scenario recall](viz/figures/03_per_scenario_recall.png)
+
+*Per-scenario recall at each scorer's own operating point. Mean ± 1 sd over 6
+seeds. ML leads on recall across all scenarios; the overlap on impossible travel
+is widest because that scenario's recall is most variable across seeds.*
+
+![Hard-negative FP rate](viz/figures/04_hard_negative_fp.png)
+
+*Hard-negative false-positive rate. Lower is better. Rules beats the naive
+single-row baseline; ML does not at its operating point.*
 
 ---
 
@@ -155,6 +192,26 @@ thresholds — surfaced as a business decision, not resolved by the harness.
   and the ML swap-in is measured against this baseline on the same harness.
 
 ---
+
+## Running the multi-seed evaluation
+
+The per-scenario figures above come from a 6-seed run. Each seed pair generates
+independent eval and train datasets, scores with both scorers, and writes
+per-seed artifacts to `runs/seed_N/`:
+
+```bash
+for i in 1 2 3 4 5 6; do
+    python scripts/run_seed.py --eval-seed $i --train-seed $((i + 100))
+done
+python -m fraud_eval.aggregate_runs   # reads runs/seed_*/metrics_*.json
+pip install -r viz/requirements-viz.txt
+python -m viz.make_plots              # writes viz/figures/*.png
+```
+
+`scripts/run_seed.py` uses library calls throughout (no subprocess shelling)
+and keeps the cost knobs fixed across all seeds so operating points are
+comparable. `fraud_eval/aggregate_runs.py` uses sample standard deviation
+(`statistics.stdev`, n−1) and skips absent scenarios rather than zero-filling.
 
 ## Running the ML scorer
 

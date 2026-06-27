@@ -1,3 +1,4 @@
+![tests](https://github.com/essemm/fraud-eval-harness/actions/workflows/tests.yml/badge.svg)
 # Sequence-Aware Fraud Detection Evaluation Harness
 
 Card fraud is not a property of a single transaction. A $4 online purchase is

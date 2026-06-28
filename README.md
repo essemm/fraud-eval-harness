@@ -15,6 +15,17 @@ sub-1% fraud rate, where flagging nothing scores ~99.7%.
 The deliverable is not a fraud model. It is the harness that tells you whether
 *any* fraud model is good enough, where it fails, and at what threshold to run it.
 
+## Why this is relevant to AI systems
+
+This project is about evaluation design, not fraud domain expertise. The same pattern applies to LLM-assisted workflows:
+
+- generate or collect labelled cases
+- include hard negatives / near misses
+- separate model implementation from evaluation
+- score outputs against business-relevant cost models
+- choose operating thresholds explicitly
+- report failure modes by scenario, not only blended metrics
+
 ---
 
 ## Architecture

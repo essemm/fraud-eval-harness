@@ -90,9 +90,10 @@ distinguish genuine fraud from legitimate behaviour that *looks* like fraud
 
 ## 3. Scope and module architecture
 
-The system is four modules connected by CSV interfaces. Each is independently
-readable and independently testable. The seams are deliberate: they are where
-implementations get swapped and where stakeholders reason about the system.
+The system is a package of modules connected by CSV and JSONL interfaces. Each
+module is independently readable and independently testable. The interfaces are
+deliberate: they are where implementations can be swapped and where stakeholders
+reason about the system.
 
 ```
 generate_synthetic.py  ──>  transactions.csv  ──┬──────────────┐
@@ -117,8 +118,11 @@ amounts to USD via the shared `fx.to_usd` helper.
 | `evaluate.py` | Cost-weighted threshold sweep; per-scenario + operating-point diagnostics | scored rows + labels | `sweep.csv`, `metrics.json`, text report |
 | `scripts/run_seed.py` | Orchestration: run the full pipeline (rules + ML) for one (eval, train) seed pair | — | per-seed `sweep_*.csv`, `metrics_*.json` |
 | `aggregate_runs.py` | Pool per-seed metrics into mean ± sample-std per scenario | per-seed `metrics_*.json` | `aggregate.json` |
-| `viz/make_plots.py` | Render the four committed PNGs from sweep + aggregate artifacts | `sweep_*.csv`, `aggregate.json` | PNGs |
-
+| `viz/make_plots.py` | Render the committed PNGs from sweep, aggregate, and reliability artifacts | `sweep_*.csv`, `aggregate.json`, `scored_rows_ml.csv` or `reliability_ml.json` | PNGs |
+| `viz/reliability.py` | ML row-level probability reliability diagnostics: bins, Brier score, expected calibration error | held-out `scored_rows_ml.csv` | `reliability_ml.json`, optional text report |
+| `investigation/build_cases.py` | Build compact investigation cases from scored card and row outputs | `scored_cards.csv`, `scored_rows.csv` or `scored_rows_ml.csv` | `investigation_cases.jsonl` |
+| `investigation/investigate.py` | Optional local-LLM investigation-note generator; consumes cases and writes structured notes | `investigation_cases.jsonl` | `investigation_notes.jsonl` |
+| `investigation/evaluate_notes.py` | Rubric-based evaluation of investigation notes for grounding, caution, and usefulness | `investigation_cases.jsonl`, `investigation_notes.jsonl` | `investigation_eval.json`, optional text report |
 **Swap contract:** only the scorer changes when the rule baseline is replaced by
 an ML model. `RuleScorer` (`score.py`) and `MLScorer` (`score_ml.py`) both
 satisfy the `Scorer` protocol (`scorer.py`); `features.py` and `evaluate.py` are
@@ -129,8 +133,12 @@ untouched. This is what makes the baseline-vs-model comparison a fair test.
 `fraud_eval/` (stdlib-only, plus scikit-learn for `score_ml`). `scripts/` holds
 orchestration that calls the package but is not part of it. `viz/` is a separate
 consumer with its own plotting dependency (§12). Nothing in `fraud_eval/` imports
-matplotlib.
-
+matplotlib. The optional `investigation/` layer is a downstream consumer of scored artifacts,
+not part of the fraud detector. It does not alter generation, feature
+construction, scoring, threshold selection, or core evaluation. Its purpose is to
+show how a weak local LLM can be placed inside a constrained, auditable workflow:
+summarising evidence, identifying missing information, and recommending review
+steps without becoming the decision-maker.
 ---
 
 ## 4. Files and interfaces
@@ -380,17 +388,54 @@ precision/recall frontier trade-off rather than dominance, that is the finding.
 The hard-negative comparison is the most stable figure (highest card count) and
 the cleanest "earns its complexity" evidence.
 
+### 8.3 ML probability reliability
+
+The ML scorer emits row-level probabilities via logistic regression. Before those
+scores are aggregated to a card-level operating score, the harness must evaluate
+whether the row-level probabilities are reliable: when the model assigns scores
+near `p`, the observed fraud rate in that score band should be near `p`.
+
+This requirement applies to **row-level ML scores only**. The card-level score
+after aggregation, especially after `decaying_sum`, is an operating score used for
+thresholding. It must not be described as a calibrated probability.
+
+The reliability diagnostic must:
+
+- read held-out `scored_rows_ml.csv`, never training rows;
+- bin row-level predicted scores into fixed probability intervals over `[0, 1]`;
+- for each non-empty bin, report:
+  - bin lower and upper bound;
+  - row count;
+  - mean predicted probability;
+  - observed fraud rate;
+- render a reliability diagram:
+  - x-axis = mean predicted probability;
+  - y-axis = observed fraud rate;
+  - diagonal reference line = perfect calibration;
+- report at least:
+  - Brier score: mean squared error between predicted probability and binary label;
+  - expected calibration error, weighted by bin count;
+  - number of bins and number of populated bins.
+
+This diagnostic is not an operating-point selector. It answers a narrower
+question: whether the ML row score may be interpreted as a probability before the
+score is consumed by the card-level aggregation and thresholding pipeline.
+
+Accuracy remains non-headline. The reliability diagram must not use the word
+"accuracy" in its title, axes, caption, or output file name.
+
 ---
 
 ## 9. Non-functional requirements
 
 - **Reproducibility:** all randomness seeded; same seed yields identical output.
-- **No external services:** pure file-based I/O (CSV), no database, no network.
-  Runnable from a clean checkout with the standard library plus a minimal,
-  declared dependency set.
+- **No external services:** pure file-based I/O (CSV/JSON/JSONL), no database, no
+  network. Runnable from a clean checkout with the standard library plus a
+  minimal, declared dependency set.
 - **Determinism for tests:** every module callable as a pure function on
   in-memory data, independent of file I/O, so acceptance tests need no fixtures
-  on disk.
+  on disk. Agent tests must not require a live LLM; use a deterministic fake
+  model or recorded fixture.
 - **Readability over cleverness:** the code is a portfolio and discussion
   artifact; clarity is a requirement, not a preference.
 
@@ -454,6 +499,14 @@ Each criterion below is directly translatable to a test case.
 - E4. Accuracy does not appear as a headline metric.
 - E5. Operating-point diagnostics fall back to the reference threshold when the
   cost-minimiser is degenerate, and record that they did.
+- E6. ML probability reliability is computed on held-out row-level ML scores, not
+  training data and not card-level aggregated scores.
+- E7. Reliability bins report row count, mean predicted probability, and observed
+  fraud rate; empty bins are skipped or explicitly marked empty.
+- E8. Brier score and expected calibration error are reported for the ML row-level
+  probabilities.
+- E9. The reliability diagnostic does not use the word "accuracy" in its title,
+  axes, caption, output file name, or README reference.
 
 **Multi-seed aggregation**
 - M1. Every (eval, train) seed pair has distinct eval and train seeds
@@ -466,7 +519,7 @@ Each criterion below is directly translatable to a test case.
   pooled figures are at each scorer's own operating point.
 
 **Visualiser**
-- V1. Four PNGs are produced, each standalone and README-embeddable.
+- V1. Five PNGs are produced, each standalone and README-embeddable.
 - V2. Bar plots (3–4) draw error bars from `aggregate.json` std; a `null`-std
   scenario renders no bar with a caveat, not a zero-height bar.
 - V3. No `fraud_eval/` module imports matplotlib; the plotting dependency is
@@ -474,7 +527,29 @@ Each criterion below is directly translatable to a test case.
 - V4. The visualiser imports/invokes no pipeline scorer or generator — it is a
   pure artifact consumer.
 - V5. "Accuracy" appears in no figure title, axis, or caption.
+- V6. A fifth static PNG, `05_ml_reliability_diagram.png`, is produced from
+  held-out ML row-level scores.
+- V7. The reliability diagram includes a diagonal perfect-calibration reference
+  line and labels the plotted points as probability bins.
+- V8. The reliability diagram is generated by the visualiser layer only; no core
+  `fraud_eval/` module imports plotting dependencies.
 
+**Investigation layer**
+- A1. `build_cases.py` emits one compact case object per selected high-score card,
+  with no ground-truth label fields included in the LLM prompt payload.
+- A2. `investigate.py` writes one structured JSON object per input case and
+  validates required fields before writing.
+- A3. `recommended_action` is restricted to the allowed enum: `no_action`,
+  `manual_review`, `step_up_auth`, `customer_contact`, `block_or_suspend`.
+- A4. Investigation notes must not contain forbidden conclusions such as
+  "confirmed fraud" or customer-accusatory language.
+- A5. `evaluate_notes.py` reports per-case rubric results and aggregate pass rates
+  for grounding, caution, valid action, missing-information request, and
+  customer-safe language.
+- A6. Tests for the investigation layer run without a live LLM, using a
+  deterministic fake model or fixture.
+- A7. The investigation layer is a downstream consumer only: it does not modify
+  scores, thresholds, generated data, features, or core evaluation outputs.
 ---
 
 ## 11. Resolved decisions
@@ -516,11 +591,11 @@ resolution so the rationale survives.
 
 ## 12. Visualiser
 
-The visualiser turns the harness outputs (`sweep.csv`, `aggregate.json`) into
-plots. It is a pure **consumer** of those artifacts: it never re-runs the
-pipeline, re-scores, or touches the source data. That separation keeps the
-pipeline stdlib-only and deterministic while the visualiser carries its own
-heavier plotting dependency.
+The visualiser turns the harness outputs (`sweep.csv`, `aggregate.json`, and
+reliability artifacts) into plots. It is a pure **consumer** of those artifacts:
+it never re-runs the pipeline, re-scores, or touches the source data. That
+separation keeps the pipeline stdlib-only and deterministic while the visualiser
+carries its own heavier plotting dependency.
 
 **Placement:** a `viz/` directory at the repo root, outside the `fraud_eval/`
 package, with its plotting dependency declared separately (e.g.
@@ -552,6 +627,9 @@ because they answer different questions at different stabilities.
 - **Bar plots (3–4)** read `aggregate.json` (§8.2): bar height = mean across
   seeds, **error bar = sample standard deviation across seeds**. These are the
   only plots with error bars, since only they aggregate across seeds.
+- **Reliability plot (5)** reads held-out row-level ML scores, either directly
+  from `scored_rows_ml.csv` or from the derived `reliability_ml.json`. It is not
+  drawn from card-level aggregated scores.
 
 This supersedes the earlier "one `metrics.json` per scorer" contract: the
 stable per-scenario figures now live in `aggregate.json`, not in any single run's
@@ -574,22 +652,127 @@ stable per-scenario figures now live in `aggregate.json`, not in any single run'
 4. **Hard-negative false-positive rate** — sequence-aware vs naive single-row
    baseline, with error bars; the most stable comparison and the "earns its
    complexity" point.
+5. **ML probability reliability diagram** — row-level ML predicted probability
+   versus observed fraud rate by score bin, with a diagonal perfect-calibration
+   reference line. Reports Brier score and expected calibration error. This plot
+   uses held-out `scored_rows_ml.csv` before card-level aggregation. It is a
+   probability diagnostic, not a threshold-selection figure.
 
 Every figure carries provenance: plots 1–2 state "representative seed N"; plots
-3–4 state "mean ± 1 sd over 6 seeds." A scenario whose std is `null` (single
-seed) renders without an error bar and a noted caveat, never as a zero-height
-bar. Accuracy appears in no title, axis, or caption (E4 extends to the visuals).
-Colour mapping for rules vs ML is identical across all four figures.
+3–4 state "mean ± 1 sd over 6 seeds"; plot 5 states the held-out ML scored-row
+source and binning policy. A scenario whose std is `null` (single seed) renders
+without an error bar and a noted caveat, never as a zero-height bar. Accuracy
+appears in no title, axis, or caption (E4 extends to the visuals). Colour mapping
+for rules vs ML is identical across comparative figures. The reliability diagram
+uses ML only and marks the diagonal perfect-calibration line as a neutral reference.
 
 ---
 
-## 13. Out of scope / future work
+## 13. Optional agentic investigation layer
 
-- An agentic investigation layer that consumes high-score accounts and produces a
-  written case file (shares the explanation backbone with `score.py`).
-- Streaming / online evaluation; this brief covers batch only. A per-card,
-  rolling-window, daily-retrained model (online learning for concept drift) was
-  considered and deliberately left out: the synthetic data is static, so there is
-  no real drift to track, and a population-trained model is the correct unit
-  (fraud signal lives across cards, not within one). Noted as a production
-  extension, not a gap.
+The core harness stops at scored decisions, threshold selection, and diagnostics.
+An optional downstream investigation layer may consume high-score card cases and
+produce structured investigation notes using a local LLM.
+
+The agent is not a fraud detector. It must not decide whether fraud occurred,
+change scores, set thresholds, or override the evaluation harness. Its role is to
+prepare a case note for a human reviewer from evidence already present in the
+scored artifacts.
+
+### 13.1 Agent inputs
+
+The investigation layer consumes a compact case object derived from scored rows
+and scored cards. Each case includes:
+
+- `card_id`;
+- `card_score`;
+- scorer type (`rules` or `ml`);
+- decision threshold used to select the case;
+- top suspicious rows;
+- scorer reason strings;
+- relevant sequence features;
+- optional profile summary;
+- no ground-truth label in the prompt.
+
+Ground-truth fields such as `any_fraud`, `fraud_scenario`, and `has_hard_neg` may
+be carried in a separate evaluation-only structure, but must not be included in
+the LLM prompt.
+
+### 13.2 Agent output contract
+
+The LLM must emit one structured JSON object per case:
+
+```json
+{
+  "card_id": "card_000123",
+  "recommended_action": "manual_review",
+  "risk_summary": "Short evidence-grounded summary.",
+  "supporting_evidence": [
+    "Observed fact from the case input"
+  ],
+  "missing_information": [
+    "Information a human reviewer should obtain"
+  ],
+  "customer_safe_language": "Neutral wording suitable for customer contact.",
+  "caveats": [
+    "Reasons the case may be a false positive"
+  ]
+}
+```
+
+Allowed `recommended_action` values:
+
+- `no_action`;
+- `manual_review`;
+- `step_up_auth`;
+- `customer_contact`;
+- `block_or_suspend`.
+
+The output must distinguish observed facts from hypotheses. It must not claim
+that fraud is confirmed, accuse the customer, invent facts not present in the
+case, or refer to labels withheld from the prompt.
+
+### 13.3 Local model policy
+
+The v1 implementation may use a weak local LLM. That is a design constraint, not
+a problem to hide. The prompt and output contract must be explicit enough that
+the model is treated as a constrained summariser rather than a trusted autonomous
+actor.
+
+The implementation must be runnable without external network services. Tests
+must not require an actual local LLM. A deterministic fake model or recorded
+fixture is required for acceptance tests.
+
+### 13.4 Agent evaluation
+
+The investigation layer must include a rubric evaluator. It does not grade
+whether the fraud score was right; the core harness already handles fraud
+detection metrics. It grades whether the investigation note is safe and useful.
+
+At minimum, the evaluator reports:
+
+- **grounded evidence:** every supporting-evidence item is traceable to the case
+  input;
+- **no forbidden conclusion:** the note does not claim confirmed fraud or accuse
+  the customer;
+- **valid action:** `recommended_action` is one of the allowed values;
+- **missing information:** the note asks for at least one relevant missing fact
+  when the case is ambiguous;
+- **customer-safe language:** customer-facing wording is neutral and
+  non-accusatory;
+- **hard-negative caution:** for evaluation-known hard negatives, the note
+  contains an appropriate caveat or review posture rather than overconfident
+  escalation.
+
+The evaluator emits both per-case rubric results and aggregate pass rates. The
+aggregate report is the committed artifact; raw local-LLM outputs may be
+committed only if they are deterministic, small, and free of secrets.
+
+---
+
+## 14. update future work
+
+- Production case-management workflow, analyst feedback ingestion, and
+  human-in-the-loop retraining. The v1 investigation layer produces evaluated
+  notes only; it does not implement review queues, analyst assignment, feedback
+  capture, or production decisioning.

@@ -1,12 +1,12 @@
 """
-Generate four diagnostic figures from the fraud-eval pipeline outputs.
+Generate five diagnostic figures from the fraud-eval pipeline outputs.
 
 Two backends share all data-loading and preparation; only the final draw call
 differs:
 
   Static PNGs (default, matplotlib):
       python -m viz.make_plots --out-dir viz/figures/
-      Output: 01_cost_vs_threshold.png … 04_hard_negative_fp.png
+      Output: 01_cost_vs_threshold.png … 05_ml_reliability_diagram.png
 
   Interactive HTML (Plotly):
       python -m viz.make_plots --interactive --out-dir viz/figures/
@@ -14,6 +14,11 @@ differs:
 
 Plots 1–2 (curves) come from one representative seed's sweep CSV files.
 Plots 3–4 (bars) come from aggregate.json (mean ± sample-std over 6 seeds).
+Plot 5 (ML row-level probability reliability) comes from the representative
+seed's reliability_ml.json (or is computed from its held-out scored_rows_ml.csv
+via viz/reliability.py). It is a row-level probability diagnostic, drawn before
+card-level aggregation, and never describes the card-level score as a
+probability.
 
 This module is a pure consumer: it reads CSV and JSON artifacts already on
 disk and never re-runs the pipeline, re-scores rows, or imports any scorer.
@@ -304,6 +309,94 @@ def plot_hard_negative_fp(agg, out_dir):
     print(f"wrote {path}")
 
 
+# ── Plot 5: ML probability reliability diagram ────────────────────────────────
+
+def load_reliability(reliability_path, rows_path, n_bins):
+    """Return a reliability result dict.
+
+    Prefers the precomputed reliability_ml.json; if it is absent, computes the
+    diagnostic from held-out scored_rows_ml.csv (so the figure can be drawn in
+    one step). Either way the computation lives in viz/reliability.py — this is
+    a pure consumer of row-level ML scores, never card-level aggregated ones.
+    """
+    if reliability_path and os.path.exists(reliability_path):
+        with open(reliability_path) as f:
+            return json.load(f)
+
+    from viz.reliability import compute_reliability
+    with open(rows_path, newline="") as f:
+        rows = list(csv.DictReader(f))
+    return compute_reliability(rows, n_bins=n_bins, source=rows_path)
+
+
+def build_reliability_figure(reliability):
+    """
+    Build (and return) the ML ROW-LEVEL reliability diagram: mean predicted
+    probability (x) vs observed fraud rate (y) per score bin, against the
+    diagonal perfect-calibration reference. Points are probability bins, sized
+    by row count. Brier score and expected calibration error are reported in
+    the caption. This is a calibration diagnostic for the row-level score
+    before card-level aggregation — not a threshold-selection figure, and the
+    card-level decaying-sum score is never described as a probability.
+
+    Returns the matplotlib Figure (kept separate from saving so the figure's
+    labels and reference line are inspectable in tests; V7).
+    """
+    bins = reliability["bins"]
+    xs = [b["mean_predicted_probability"] for b in bins]
+    ys = [b["observed_fraud_rate"] for b in bins]
+    counts = [b["count"] for b in bins]
+
+    # Marker area scaled by row count, clamped so a huge bin doesn't dominate.
+    max_count = max(counts) if counts else 1
+    sizes = [30 + 270 * (c / max_count) for c in counts]
+
+    fig, ax = plt.subplots(figsize=(6.5, 6.5))
+    ax.set_title(
+        "ML Row-Level Probability Reliability\n"
+        "Predicted probability vs observed fraud rate, by score bin",
+        fontsize=11)
+
+    # Diagonal perfect-calibration reference line (neutral reference).
+    ax.plot([0, 1], [0, 1], color="#999999", lw=1.2, ls="--",
+            label="Perfect calibration")
+
+    ax.scatter(xs, ys, s=sizes, color=COLOUR["ml"], alpha=0.8, zorder=5,
+               edgecolor="white", linewidth=0.8,
+               label="Probability bins (size ∝ row count)")
+
+    ax.set_xlabel("Mean predicted probability (bin)")
+    ax.set_ylabel("Observed fraud rate (bin)")
+    ax.set_xlim(0, 1.0)
+    ax.set_ylim(0, 1.0)
+    ax.set_aspect("equal", adjustable="box")
+    ax.legend(fontsize=9, loc="upper left")
+    ax.grid(True, lw=0.4, alpha=0.5)
+
+    caption = (
+        f"Held-out ML row-level scores: {reliability['source'] or 'in-memory'}.  "
+        f"{reliability['n_populated_bins']}/{reliability['n_bins']} bins populated, "
+        f"n={reliability['n_rows']} rows.\n"
+        f"Brier score = {reliability['brier_score']:.4f}   "
+        f"Expected calibration error = "
+        f"{reliability['expected_calibration_error']:.4f}.  "
+        f"Row-level probability diagnostic, before card-level aggregation.")
+    fig.text(0.5, -0.02, caption, ha="center", va="top",
+             fontsize=7.5, color="#444")
+
+    fig.tight_layout()
+    return fig
+
+
+def plot_ml_reliability(reliability, out_dir):
+    """Draw the reliability diagram and write 05_ml_reliability_diagram.png."""
+    fig = build_reliability_figure(reliability)
+    path = os.path.join(out_dir, "05_ml_reliability_diagram.png")
+    fig.savefig(path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"wrote {path}")
+
+
 # ── Plotly (interactive) backend ─────────────────────────────────────────────
 #
 # Each function returns a plotly.graph_objects.Figure.
@@ -552,8 +645,53 @@ def _plotly_hard_negative_fp(agg):
     return fig
 
 
-def write_interactive_html(rules_sweep, ml_sweep, agg, out_dir):
-    """Build all four Plotly figures and write a single standalone HTML file."""
+def _plotly_ml_reliability(reliability):
+    import plotly.graph_objects as go
+
+    bins = reliability["bins"]
+    xs = [b["mean_predicted_probability"] for b in bins]
+    ys = [b["observed_fraud_rate"] for b in bins]
+    counts = [b["count"] for b in bins]
+    max_count = max(counts) if counts else 1
+    sizes = [8 + 30 * (c / max_count) for c in counts]
+
+    hover = [
+        f"bin [{b['bin_lower']:.2f}, {b['bin_upper']:.2f})<br>"
+        f"mean predicted prob={b['mean_predicted_probability']:.3f}<br>"
+        f"observed fraud rate={b['observed_fraud_rate']:.3f}<br>"
+        f"rows={b['count']}"
+        for b in bins
+    ]
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=[0, 1], y=[0, 1], mode="lines",
+        line=dict(color="#999999", width=1.5, dash="dash"),
+        name="Perfect calibration",
+    ))
+    fig.add_trace(go.Scatter(
+        x=xs, y=ys, mode="markers",
+        marker=dict(color=COLOUR["ml"], size=sizes,
+                    line=dict(color="white", width=1)),
+        text=hover, hoverinfo="text",
+        name="Probability bins",
+    ))
+    fig.update_layout(
+        title=("ML Row-Level Probability Reliability<br>"
+               f"<sup>Brier={reliability['brier_score']:.4f}, "
+               f"ECE={reliability['expected_calibration_error']:.4f}, "
+               f"n={reliability['n_rows']} held-out rows — "
+               "row-level diagnostic, before card-level aggregation</sup>"),
+        xaxis=dict(title="Mean predicted probability (bin)", range=[0, 1]),
+        yaxis=dict(title="Observed fraud rate (bin)", range=[0, 1],
+                   scaleanchor="x", scaleratio=1),
+        hovermode="closest",
+    )
+    return fig
+
+
+def write_interactive_html(rules_sweep, ml_sweep, agg, reliability, out_dir):
+    """Build all five Plotly figures and write a single standalone HTML file."""
     import plotly.io as pio
 
     figures = [
@@ -579,6 +717,14 @@ def write_interactive_html(rules_sweep, ml_sweep, agg, out_dir):
          (f"Mean ± 1 sd over {agg['rules']['n_seeds']} seeds. Lower is better. "
           "Rules beats the naive single-row baseline; ML does not at its "
           "operating point.")),
+
+        (_plotly_ml_reliability(reliability),
+         "5. ML Row-Level Probability Reliability",
+         (f"Held-out ML row-level scores ({reliability['source'] or 'in-memory'}). "
+          f"Brier={reliability['brier_score']:.4f}, "
+          f"ECE={reliability['expected_calibration_error']:.4f}. "
+          "Whether the row-level score reads as a probability, before "
+          "card-level aggregation. Not a threshold-selection figure.")),
     ]
 
     sections = []
@@ -616,7 +762,8 @@ def write_interactive_html(rules_sweep, ml_sweep, agg, out_dir):
         "  <h1>Sequence-Aware Fraud Detection — Interactive Evaluation Figures</h1>\n"
         "  <p style='color:#666; font-size:0.9em'>"
         f"Hover to inspect values. Plots 1–2: representative seed {REP_SEED}. "
-        f"Plots 3–4: mean ± 1 sd over {agg['rules']['n_seeds']} seeds."
+        f"Plots 3–4: mean ± 1 sd over {agg['rules']['n_seeds']} seeds. "
+        f"Plot 5: held-out ML row-level scores (seed {REP_SEED})."
         "</p>\n"
         + "".join(sections)
         + "</body>\n</html>\n"
@@ -642,6 +789,16 @@ def main():
                     help="sweep CSV for the ML scorer (representative seed)")
     ap.add_argument("--aggregate", default="runs/aggregate.json",
                     help="aggregate.json from aggregate_runs.py")
+    ap.add_argument("--reliability",
+                    default=f"runs/seed_{REP_SEED}/reliability_ml.json",
+                    help="reliability_ml.json from viz.reliability; if absent, "
+                         "computed from --reliability-rows")
+    ap.add_argument("--reliability-rows",
+                    default=f"runs/seed_{REP_SEED}/scored_rows_ml.csv",
+                    help="held-out ML scored rows, used if --reliability JSON "
+                         "is absent")
+    ap.add_argument("--reliability-bins", type=int, default=10,
+                    help="bins to use when computing reliability from rows")
     ap.add_argument("--out-dir",  default="viz/figures",
                     help="directory to write output into")
     ap.add_argument("--interactive", action="store_true",
@@ -655,15 +812,22 @@ def main():
     ml_sweep    = load_sweep(args.ml_sweep)
     with open(args.aggregate) as f:
         agg = json.load(f)
+    reliability = load_reliability(args.reliability, args.reliability_rows,
+                                   args.reliability_bins)
 
     print(f"sweep rows: rules={len(rules_sweep)}, ml={len(ml_sweep)}")
     print(f"aggregate: rules n_seeds={agg['rules']['n_seeds']}, "
           f"ml n_seeds={agg['ml']['n_seeds']}")
+    print(f"reliability: n_rows={reliability['n_rows']}, "
+          f"populated bins={reliability['n_populated_bins']}, "
+          f"Brier={reliability['brier_score']:.4f}, "
+          f"ECE={reliability['expected_calibration_error']:.4f}")
     print()
 
     if args.interactive:
         try:
-            write_interactive_html(rules_sweep, ml_sweep, agg, args.out_dir)
+            write_interactive_html(rules_sweep, ml_sweep, agg, reliability,
+                                   args.out_dir)
         except ImportError:
             ap.error("plotly is required for --interactive. "
                      "Run: pip install plotly")
@@ -672,7 +836,8 @@ def main():
         plot_precision_recall(rules_sweep, ml_sweep, args.out_dir)
         plot_per_scenario_recall(agg, args.out_dir)
         plot_hard_negative_fp(agg, args.out_dir)
-        print(f"\nall four figures written to {args.out_dir}/")
+        plot_ml_reliability(reliability, args.out_dir)
+        print(f"\nall five figures written to {args.out_dir}/")
 
 
 if __name__ == "__main__":

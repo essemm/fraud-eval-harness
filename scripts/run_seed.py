@@ -58,6 +58,35 @@ def _write_sweep_csv(path, sweep_rows):
         w.writerows(sweep_rows)
 
 
+def _write_dicts_csv(path, rows, fieldnames):
+    """Write a list of dict rows to CSV with an explicit field order."""
+    if not rows:
+        return
+    with open(path, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fieldnames)
+        w.writeheader()
+        w.writerows(rows)
+
+
+def _persist_scored(label, scored_rows, scored_cards, out_dir):
+    """Persist held-out scored rows and cards for one scorer.
+
+    These are the inputs the downstream consumers read: the reliability
+    diagnostic (viz/reliability.py) reads scored_rows_ml.csv, and the
+    investigation layer reads both scored_rows_*.csv and scored_cards_*.csv.
+    Writing them here keeps those layers pure consumers of on-disk artifacts.
+
+    Cards are persisted with their actual key set rather than CARD_OUT_FIELDS:
+    evaluate() has already enriched each card with `has_hard_neg`, which the
+    investigation evaluator relies on (hard-negative caution rubric), so it is
+    worth carrying through to disk.
+    """
+    _write_dicts_csv(os.path.join(out_dir, f"scored_rows_{label}.csv"),
+                     scored_rows, list(scored_rows[0].keys()))
+    _write_dicts_csv(os.path.join(out_dir, f"scored_cards_{label}.csv"),
+                     scored_cards, list(scored_cards[0].keys()))
+
+
 def _pipeline_for_seed(seed):
     """Generate → profile → features for one seed. Returns featured rows."""
     txn_rows = generate(N_CARDS, N_DAYS, FRAUD_RATE, HARD_NEG_RATE, seed)
@@ -127,6 +156,7 @@ def main():
     scored_cards_rules = aggregate_cards(scored_rows_rules,
                                          method="decaying_sum", decay=0.9)
     _run_scorer("rules", scored_rows_rules, scored_cards_rules, out_dir)
+    _persist_scored("rules", scored_rows_rules, scored_cards_rules, out_dir)
 
     print("\ntraining MLScorer and scoring...")
     ml_scorer = fit_from_rows(train_featured)
@@ -134,9 +164,12 @@ def main():
     scored_cards_ml = aggregate_cards(scored_rows_ml,
                                        method="decaying_sum", decay=0.9)
     _run_scorer("ml", scored_rows_ml, scored_cards_ml, out_dir)
+    _persist_scored("ml", scored_rows_ml, scored_cards_ml, out_dir)
 
     print(f"\nwrote: {out_dir}/sweep_rules.csv  metrics_rules.json"
-          f"  sweep_ml.csv  metrics_ml.json")
+          f"  sweep_ml.csv  metrics_ml.json"
+          f"\n       scored_rows_rules.csv  scored_cards_rules.csv"
+          f"  scored_rows_ml.csv  scored_cards_ml.csv")
     print("=== done ===\n")
 
 

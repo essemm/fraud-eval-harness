@@ -104,8 +104,10 @@ Randomness is seeded; the same `--seed` produces byte-identical output.
 python -m pytest tests/ -q
 ```
 
-36 tests covering the brief's acceptance criteria and regression checks run
-entirely in memory.
+64 tests covering the brief's acceptance criteria and regression checks run
+entirely in memory. The figure tests skip cleanly if the optional `viz`
+plotting stack is not installed, so the core test job needs only
+`requirements.txt`.
 
 ---
 
@@ -188,6 +190,36 @@ is widest because that scenario's recall is most variable across seeds.*
 *Hard-negative false-positive rate. Lower is better. Rules beats the naive
 single-row baseline; ML does not at its operating point.*
 
+![ML reliability diagram](viz/figures/05_ml_reliability_diagram.png)
+
+*ML row-level probability reliability (held-out seed 1). Each point is a score
+bin: mean predicted probability against the observed fraud rate, versus the
+diagonal perfect-calibration line.*
+
+### ML probability reliability
+
+The ML scorer emits a per-row probability via logistic regression. Before those
+row scores are aggregated into a card-level operating score, the harness checks
+whether they can be read as probabilities at all: when the model assigns a row a
+score near *p*, is the observed fraud rate in that band also near *p*?
+
+`viz/reliability.py` bins the held-out row scores over `[0, 1]` and reports the
+**Brier score** (mean squared error between score and label) and the
+count-weighted **expected calibration error**. On the representative seed the
+row scores are **overconfident**: Brier ≈ 0.023, ECE ≈ 0.060, with the mid- and
+upper-range bins sitting well below the diagonal — `class_weight="balanced"`
+inflates the raw probabilities to handle the severe imbalance. That is a useful
+caveat, not a contradiction of the detection results: the card-level
+decaying-sum score is an *operating* score chosen by threshold, and is **not**
+described anywhere as a calibrated probability. This diagnostic is a probability
+check on the row score, not a threshold selector.
+
+```bash
+python -m viz.reliability \
+    --rows runs/seed_1/scored_rows_ml.csv \
+    --out runs/seed_1/reliability_ml.json --bins 10 --report
+```
+
 ---
 
 ## Key design decisions
@@ -219,13 +251,20 @@ for i in 1 2 3 4 5 6; do
 done
 python -m fraud_eval.aggregate_runs   # reads runs/seed_*/metrics_*.json
 pip install -r viz/requirements-viz.txt
-python -m viz.make_plots              # writes viz/figures/*.png
+python -m viz.reliability \
+    --rows runs/seed_1/scored_rows_ml.csv \
+    --out runs/seed_1/reliability_ml.json   # row-level ML calibration
+python -m viz.make_plots                     # writes viz/figures/*.png (all 5)
 ```
 
 `scripts/run_seed.py` uses library calls throughout (no subprocess shelling)
 and keeps the cost knobs fixed across all seeds so operating points are
-comparable. `fraud_eval/aggregate_runs.py` uses sample standard deviation
-(`statistics.stdev`, n−1) and skips absent scenarios rather than zero-filling.
+comparable. Alongside the per-seed sweep and metrics, it now persists the
+held-out scored rows and cards (`scored_rows_{rules,ml}.csv`,
+`scored_cards_{rules,ml}.csv`) — the inputs for the reliability diagram and the
+investigation layer below. `fraud_eval/aggregate_runs.py` uses sample standard
+deviation (`statistics.stdev`, n−1) and skips absent scenarios rather than
+zero-filling.
 
 ## Running the ML scorer
 
@@ -247,3 +286,66 @@ python -m fraud_eval.evaluate --rows scored_rows_ml.csv --cards scored_cards_ml.
 
 The ML scored output drops into `evaluate.py` unchanged — the same harness, the
 same cost models — which is what makes the rules-vs-ML comparison fair.
+
+---
+
+## Optional: investigation layer
+
+A downstream `investigation/` layer turns high-scoring cards into structured
+case notes for a human reviewer. It is a **pure consumer** of the scored
+artifacts — it does not detect fraud, change scores, set thresholds, alter
+features, or touch any core evaluation output, and it imports nothing from
+`fraud_eval/`.
+
+The local LLM here is a **constrained summariser, not the decision-maker and not
+the threshold selector**. It is given only a prompt-safe payload (the card
+score, the top suspicious rows, and a list of exact `evidence_facts`) — never
+the ground-truth labels — and is asked to summarise evidence, flag missing
+information, and recommend a review step from a fixed action set. Every note is
+validated before it is written: required fields, an action within the allowed
+enum, list shapes, a matching `card_id`, and no "confirmed fraud" conclusion or
+customer-accusatory language. An invalid or unsafe note raises and is not
+written.
+
+```bash
+python -m investigation.build_cases \
+    --rows runs/seed_1/scored_rows_ml.csv \
+    --cards runs/seed_1/scored_cards_ml.csv \
+    --scorer ml --threshold 0.30 --limit 20 \
+    --out runs/seed_1/investigation_cases.jsonl
+
+# deterministic fake model — no network, used by tests and for a quick smoke run
+python -m investigation.investigate \
+    --cases runs/seed_1/investigation_cases.jsonl \
+    --out runs/seed_1/investigation_notes.jsonl --fake
+# or a real local model:
+#   --llm-command "ollama run qwen2.5:1.5b"
+
+python -m investigation.evaluate_notes \
+    --cases runs/seed_1/investigation_cases.jsonl \
+    --notes runs/seed_1/investigation_notes.jsonl \
+    --out runs/seed_1/investigation_eval.json --report
+```
+
+`evaluate_notes.py` grades each note against a safety/usefulness rubric —
+grounded evidence, no forbidden conclusion, valid action, a missing-information
+request, customer-safe language, and hard-negative caution — and reports
+per-case results plus aggregate pass rates. It grades whether the *note* is safe
+and useful, not whether the fraud score was right; the core harness already
+measures detection. The aggregate JSON is the committed artifact; raw model
+outputs are kept out unless they are deterministic and small.
+
+**Driving a weak local model.** `CommandModel` is model-agnostic — any command
+that reads a prompt on stdin and prints a JSON note on stdout works. Small
+models rarely emit clean JSON, so the adapter strips terminal/ANSI control codes
+(e.g. from `ollama run`), extracts the first balanced `{...}` object out of any
+surrounding prose or ```json fences, and parses leniently for literal newlines
+in strings. Validation is **not** relaxed: malformed or off-contract notes are
+still rejected. By default one bad generation aborts the batch (no partial
+write); pass `--skip-invalid` to instead drop the failures (logging each) and
+keep the valid notes — useful with a flaky small model. The evaluator then
+reports any ungraded cases under `n_missing` rather than treating them as
+failures. In practice a 1.5B model passes the safety checks but often scores low
+on `grounded_evidence`, because it paraphrases the evidence instead of citing
+`evidence_facts` verbatim — which is exactly the kind of weakness the rubric
+exists to surface.

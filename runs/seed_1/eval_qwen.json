@@ -1,0 +1,42 @@
+{
+  "n_cases": 3,
+  "n_missing": 0,
+  "missing": [],
+  "aggregate": {
+    "grounded_evidence": 0.6667,
+    "no_forbidden_conclusion": 1.0,
+    "valid_action": 1.0,
+    "missing_information": 1.0,
+    "customer_safe_language": 1.0,
+    "hard_negative_caution": 1.0
+  },
+  "cases": [
+    {
+      "card_id": "card_000643",
+      "grounded_evidence": true,
+      "no_forbidden_conclusion": true,
+      "valid_action": true,
+      "missing_information": true,
+      "customer_safe_language": true,
+      "hard_negative_caution": true
+    },
+    {
+      "card_id": "card_002964",
+      "grounded_evidence": true,
+      "no_forbidden_conclusion": true,
+      "valid_action": true,
+      "missing_information": true,
+      "customer_safe_language": true,
+      "hard_negative_caution": true
+    },
+    {
+      "card_id": "card_001881",
+      "grounded_evidence": false,
+      "no_forbidden_conclusion": true,
+      "valid_action": true,
+      "missing_information": true,
+      "customer_safe_language": true,
+      "hard_negative_caution": true
+    }
+  ]
+}

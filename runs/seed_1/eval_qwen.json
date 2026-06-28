@@ -3,7 +3,7 @@
   "n_missing": 0,
   "missing": [],
   "aggregate": {
-    "grounded_evidence": 0.6667,
+    "grounded_evidence": 0.3333,
     "no_forbidden_conclusion": 1.0,
     "valid_action": 1.0,
     "missing_information": 1.0,
@@ -22,7 +22,7 @@
     },
     {
       "card_id": "card_002964",
-      "grounded_evidence": true,
+      "grounded_evidence": false,
       "no_forbidden_conclusion": true,
       "valid_action": true,
       "missing_information": true,

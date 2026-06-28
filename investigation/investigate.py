@@ -40,13 +40,28 @@ import subprocess
 # captured stdout; strip them before parsing so the JSON text is clean.
 _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 
-from . import ALLOWED_ACTIONS, FORBIDDEN_PHRASES, ACCUSATORY_PHRASES
+from . import (
+    ACCUSATORY_PHRASES,
+    ALLOWED_ACTIONS,
+    FORBIDDEN_PHRASES,
+    WITHHELD_LABEL_FIELDS,
+)
 
 # Note fields and their expected shapes (A2). str fields are non-empty; list
 # fields are lists of strings.
 _STR_FIELDS = ("card_id", "recommended_action", "risk_summary",
                "customer_safe_language")
 _LIST_FIELDS = ("supporting_evidence", "missing_information", "caveats")
+
+_STANDALONE_WORDS = {
+    "a", "an", "and", "are", "as", "at", "be", "by", "for", "from",
+    "i", "if", "in", "is", "it", "no", "of", "on", "or", "our", "so",
+    "that", "the", "their", "there", "these", "this", "those", "to",
+    "we", "with", "you", "your",
+}
+_SHORT_FRAGMENT_PREFIXES = {
+    "in": ("involv", "includ", "indicat", "inform", "investig"),
+}
 
 
 def build_prompt(case):
@@ -146,6 +161,99 @@ def _contains_any(text, phrases):
     return [p for p in phrases if p in low]
 
 
+def _overlap_len(left, right):
+    """Length of duplicated terminal-wrap overlap between two line fragments."""
+    max_len = min(len(left), len(right))
+    left_low = left.lower()
+    right_low = right.lower()
+
+    for n in range(max_len, 0, -1):
+        if left_low[-n:] != right_low[:n]:
+            continue
+
+        if n >= 3:
+            trailing_word = re.search(r"([A-Za-z]+)$", left)
+            overlap = right[:n].lower()
+            right_continues_word = len(right) > n and right[n].isalpha()
+            if (trailing_word
+                    and trailing_word.group(1).lower() == overlap
+                    and overlap in _STANDALONE_WORDS
+                    and right_continues_word):
+                continue
+            return n
+
+        trailing_fragment = re.search(r"([A-Za-z]{1,2})$", left)
+        leading_word = re.match(r"([A-Za-z]+)", right)
+        if (trailing_fragment and leading_word
+                and leading_word.group(1).lower().startswith(
+                    trailing_fragment.group(1).lower())):
+            fragment = trailing_fragment.group(1).lower()
+            lead = leading_word.group(1).lower()
+            if fragment not in _STANDALONE_WORDS:
+                return n
+            if any(lead.startswith(prefix)
+                   for prefix in _SHORT_FRAGMENT_PREFIXES.get(fragment, ())):
+                return n
+
+    return 0
+
+
+def clean_terminal_wrapped_text(text):
+    """Repair line-wrap artifacts emitted by tiny terminal-driven models.
+
+    Some local model CLIs repaint or hard-wrap streamed output, leaving JSON
+    string values like "transactio\ntransactions" or "res\nresults". After JSON
+    parsing those newlines become real characters inside the note. This merges
+    wrapped lines and removes the duplicated fragment while preserving ordinary
+    words separated by a wrap.
+    """
+    if not isinstance(text, str) or "\n" not in text and "\r" not in text:
+        return text
+
+    lines = [line.strip() for line in text.replace("\r", "\n").split("\n")]
+    merged = ""
+    for line in lines:
+        if not line:
+            continue
+        if not merged:
+            merged = line
+            continue
+
+        overlap = _overlap_len(merged.rstrip(), line)
+        if overlap:
+            merged = merged.rstrip()[:-overlap] + line
+        else:
+            merged = merged.rstrip() + " " + line
+
+    return re.sub(r"[ \t]+", " ", merged).strip()
+
+
+def clean_note_text(value):
+    """Recursively clean model-note strings after parsing."""
+    if isinstance(value, str):
+        return clean_terminal_wrapped_text(value)
+    if isinstance(value, list):
+        return [clean_note_text(v) for v in value]
+    if isinstance(value, dict):
+        return {k: clean_note_text(v) for k, v in value.items()}
+    return value
+
+
+def _withheld_label_terms(case):
+    """Terms from evaluation-only data that must not appear in model notes."""
+    terms = list(WITHHELD_LABEL_FIELDS)
+    evaluation = case.get("evaluation", {})
+
+    scenario = str(evaluation.get("fraud_scenario", "")).strip()
+    if scenario and scenario.lower() != "none":
+        terms.append(scenario)
+
+    if evaluation.get("has_hard_neg") is True:
+        terms.extend(["hard_neg", "hard negative"])
+
+    return terms
+
+
 def validate_note(note, case):
     """Validate a parsed note against the schema and safety rules (A2–A4).
 
@@ -187,6 +295,9 @@ def validate_note(note, case):
     hit = _contains_any(blob, ACCUSATORY_PHRASES)
     if hit:
         raise NoteValidationError(f"accusatory phrase(s): {hit}")
+    hit = _contains_any(blob, _withheld_label_terms(case))
+    if hit:
+        raise NoteValidationError(f"withheld label reference(s): {hit}")
 
     return note
 
@@ -246,7 +357,7 @@ def investigate_case(model, case):
         raise NoteValidationError(
             f"model returned invalid JSON for case "
             f"{case['case_id']}: {e}") from e
-    return validate_note(note, case)
+    return validate_note(clean_note_text(note), case)
 
 
 def investigate_all(model, cases):

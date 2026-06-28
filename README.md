@@ -304,8 +304,9 @@ the ground-truth labels — and is asked to summarise evidence, flag missing
 information, and recommend a review step from a fixed action set. Every note is
 validated before it is written: required fields, an action within the allowed
 enum, list shapes, a matching `card_id`, and no "confirmed fraud" conclusion or
-customer-accusatory language. An invalid or unsafe note raises and is not
-written.
+customer-accusatory language. The validator also rejects references to
+withheld label fields or their evaluation-only values. An invalid or unsafe
+note raises and is not written.
 
 ```bash
 python -m investigation.build_cases \
@@ -325,6 +326,11 @@ python -m investigation.evaluate_notes \
     --cases runs/seed_1/investigation_cases.jsonl \
     --notes runs/seed_1/investigation_notes.jsonl \
     --out runs/seed_1/investigation_eval.json --report
+
+python -m investigation.render_notes \
+    --cases runs/seed_1/investigation_cases.jsonl \
+    --notes runs/seed_1/investigation_notes.jsonl \
+    --eval runs/seed_1/investigation_eval.json --limit 5
 ```
 
 `evaluate_notes.py` grades each note against a safety/usefulness rubric —
@@ -335,17 +341,25 @@ and useful, not whether the fraud score was right; the core harness already
 measures detection. The aggregate JSON is the committed artifact; raw model
 outputs are kept out unless they are deterministic and small.
 
+`render_notes.py` is only a readability helper: the canonical artifacts remain
+JSON/JSONL, while the helper joins notes, cases, and rubric results into a
+compact terminal-friendly view.
+
 **Driving a weak local model.** `CommandModel` is model-agnostic — any command
-that reads a prompt on stdin and prints a JSON note on stdout works. Small
-models rarely emit clean JSON, so the adapter strips terminal/ANSI control codes
-(e.g. from `ollama run`), extracts the first balanced `{...}` object out of any
-surrounding prose or ```json fences, and parses leniently for literal newlines
-in strings. Validation is **not** relaxed: malformed or off-contract notes are
-still rejected. By default one bad generation aborts the batch (no partial
-write); pass `--skip-invalid` to instead drop the failures (logging each) and
-keep the valid notes — useful with a flaky small model. The evaluator then
-reports any ungraded cases under `n_missing` rather than treating them as
-failures. In practice a 1.5B model passes the safety checks but often scores low
-on `grounded_evidence`, because it paraphrases the evidence instead of citing
-`evidence_facts` verbatim — which is exactly the kind of weakness the rubric
-exists to surface.
+that reads a prompt on stdin and prints a JSON note on stdout works. This path
+was smoke-tested locally with a tiny Qwen model via Ollama
+(`qwen2.5:1.5b`). Small models rarely emit clean JSON, so the adapter strips
+terminal/ANSI control codes, extracts the first balanced `{...}` object out of
+any surrounding prose or ```json fences, and parses leniently for literal
+newlines in strings. Validation is **not** relaxed: malformed, off-contract, or
+label-leaking notes are still rejected. It also repairs common terminal hard-wrap
+artifacts in parsed string fields, such as `transactio\ntransactions`, before
+validation/write; `render_notes.py` applies the same cleanup for display of older
+artifacts. By default one bad generation aborts the batch (no partial write);
+pass `--skip-invalid` to instead drop the failures (logging each) and keep the
+valid notes — useful with a flaky small model. The evaluator then reports any
+ungraded cases under `n_missing` rather than treating them as failures. In
+practice the tiny Qwen run passed the safety checks but scored lower on
+`grounded_evidence`, because it paraphrased the evidence instead of citing
+`evidence_facts` verbatim — exactly the kind of weakness the rubric is meant to
+surface.

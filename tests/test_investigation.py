@@ -15,9 +15,10 @@ from investigation import ALLOWED_ACTIONS
 from investigation.build_cases import build_cases, assert_no_withheld_labels
 from investigation.investigate import (
     FakeModel, investigate_case, investigate_all, validate_note,
-    extract_json_object, NoteValidationError,
+    extract_json_object, clean_terminal_wrapped_text, NoteValidationError,
 )
 from investigation.evaluate_notes import evaluate_notes, grade_case, RUBRIC_KEYS
+from investigation.render_notes import render_notes
 
 WITHHELD = ("is_fraud", "scenario", "any_fraud", "fraud_scenario",
             "has_hard_neg")
@@ -168,6 +169,14 @@ class _AccusatoryModel:
         return json.dumps(note)
 
 
+class _WithheldLabelModel:
+    def generate(self, case):
+        note = json.loads(FakeModel().generate(case))
+        note["risk_summary"] = (
+            "The evaluation fraud_scenario label says card_testing.")
+        return json.dumps(note)
+
+
 def test_A4_forbidden_conclusion_rejected_at_write(cases):
     with pytest.raises(NoteValidationError):
         investigate_case(_ForbiddenModel(), cases[0])
@@ -176,6 +185,11 @@ def test_A4_forbidden_conclusion_rejected_at_write(cases):
 def test_A4_accusatory_language_rejected_at_write(cases):
     with pytest.raises(NoteValidationError):
         investigate_case(_AccusatoryModel(), cases[0])
+
+
+def test_A4_withheld_label_reference_rejected_at_write(cases):
+    with pytest.raises(NoteValidationError):
+        investigate_case(_WithheldLabelModel(), cases[0])
 
 
 def test_A4_evaluator_flags_forbidden_note(cases):
@@ -222,6 +236,64 @@ def test_chatty_model_reply_still_validates(cases):
 
     note = investigate_case(_ChattyModel(), case)
     validate_note(note, case)  # must not raise
+
+
+def test_wrapped_terminal_text_is_cleaned():
+    """Terminal hard-wrap repeats like res/results are repaired."""
+    text = (
+        "The top suspicious transactio\ntransactions include multiple "
+        "high-velocity even\nevents in each ca\ncase. Further manual review "
+        "might in\ninvolve extra checks and be needed to confi\nconfirm the "
+        "suspicion."
+    )
+    cleaned = clean_terminal_wrapped_text(text)
+
+    assert "transactio\ntransactions" not in cleaned
+    assert "high-velocity even\nevents" not in cleaned
+    assert "each ca\ncase" not in cleaned
+    assert "might in\ninvolve" not in cleaned
+    assert "confi\nconfirm" not in cleaned
+    assert "transactions include" in cleaned
+    assert "high-velocity events" in cleaned
+    assert "each case" in cleaned
+    assert "might involve extra checks" in cleaned
+    assert "confirm the suspicion" in cleaned
+
+
+def test_wrapped_terminal_note_is_cleaned_after_parse(cases):
+    """Parsed model notes are cleaned before validation/write."""
+    case = cases[0]
+
+    class _WrappedModel:
+        def generate(self, case):
+            note = json.loads(FakeModel().generate(case))
+            note["risk_summary"] = (
+                "Based on model results and the high velocity\nvelocity of all "
+                "top suspicious rows.")
+            note["supporting_evidence"] = [
+                "txn t_a1 scored 0.9 because velocity_burst: 8 txns"
+            ]
+            note["missing_information"] = [
+                "Investigate high-velocity even\nevents in each ca\ncase."
+            ]
+            note["customer_safe_language"] = (
+                "This analysis is based on machine learning res\nresults.")
+            note["caveats"] = [
+                "More context is needed to confi\nconfirm the pattern."
+            ]
+            return json.dumps(note)
+
+    note = investigate_case(_WrappedModel(), case)
+
+    assert "velocity\nvelocity" not in note["risk_summary"]
+    assert "high velocity of all" in note["risk_summary"]
+    assert note["missing_information"] == [
+        "Investigate high-velocity events in each case."
+    ]
+    assert note["customer_safe_language"].endswith("machine learning results.")
+    assert note["caveats"] == [
+        "More context is needed to confirm the pattern."
+    ]
 
 
 # --- A5: per-case rubric + aggregates -------------------------------------
@@ -272,6 +344,52 @@ def test_A5_grounded_evidence_fails_on_invented_fact(cases):
     note["supporting_evidence"] = ["the cardholder admitted to the purchase"]
     graded = grade_case(note, case)
     assert graded["grounded_evidence"] is False
+
+
+def test_A5_grounded_evidence_requires_exact_fact_not_just_txn_id(cases):
+    """Naming a real txn_id is not enough if the stated fact is invented."""
+    case = cases[0]
+    note = json.loads(FakeModel().generate(case))
+    note["supporting_evidence"] = [
+        "txn t_a1 was confirmed by the cardholder"
+    ]
+    graded = grade_case(note, case)
+    assert graded["grounded_evidence"] is False
+
+
+def test_A5_grounded_evidence_tolerates_wrapped_exact_fact(cases):
+    """Whitespace wrapping from a weak model still matches an exact fact."""
+    case = cases[0]
+    note = json.loads(FakeModel().generate(case))
+    fact = case["prompt_payload"]["evidence_facts"][0]
+    note["supporting_evidence"] = [fact.replace(" because ", "\n because ")]
+    graded = grade_case(note, case)
+    assert graded["grounded_evidence"] is True
+
+
+def test_A5_grounded_evidence_repairs_terminal_overlap(cases):
+    """Evaluator cleans terminal overlap before checking exact evidence."""
+    case = cases[0]
+    note = json.loads(FakeModel().generate(case))
+    note["supporting_evidence"] = [
+        "txn t_a1 scored 0.9 because velocity_burs\nvelocity_burst: 8 txns "
+        "in trailing 1h"
+    ]
+    graded = grade_case(note, case)
+    assert graded["grounded_evidence"] is True
+
+
+def test_render_notes_human_readable(cases):
+    """Readable helper joins notes, cases, and rubric output."""
+    notes = investigate_all(FakeModel(), cases)
+    result = evaluate_notes(cases, notes)
+    text = render_notes(cases, notes, eval_result=result, limit=1)
+
+    assert "Investigation notes: 1 shown" in text
+    assert "Aggregate rubric:" in text
+    assert "card_A | action=manual_review" in text
+    assert "supporting_evidence:" in text
+    assert "case evidence_facts:" in text
 
 
 # --- A7: downstream only, no fraud_eval coupling --------------------------

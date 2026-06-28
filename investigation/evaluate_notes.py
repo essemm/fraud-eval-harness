@@ -8,8 +8,8 @@ per-case booleans and aggregate pass rates.
 
 Rubric (each a boolean per case):
   - grounded_evidence       : every supporting_evidence item is traceable to
-                              the case — exact match against evidence_facts, or
-                              it names a txn_id present in the case rows.
+                              the case — exact match against evidence_facts
+                              after whitespace normalization.
   - no_forbidden_conclusion : no "confirmed fraud"-style claim, no accusation.
   - valid_action            : recommended_action is in the allowed enum.
   - missing_information      : at least one missing-information item is present.
@@ -32,6 +32,7 @@ import argparse
 import json
 
 from . import ALLOWED_ACTIONS, FORBIDDEN_PHRASES, ACCUSATORY_PHRASES
+from .investigate import clean_note_text
 
 RUBRIC_KEYS = (
     "grounded_evidence",
@@ -43,24 +44,27 @@ RUBRIC_KEYS = (
 )
 
 
-def _txn_ids(case):
-    return {r.get("txn_id") for r in case["prompt_payload"]["top_suspicious_rows"]}
+def _normalize_fact(text):
+    """Collapse whitespace so line-wrapped model output can still match."""
+    return " ".join(str(text).split())
 
 
 def _grounded(note, case):
-    """Every supporting-evidence item must be exactly one of the case's
-    evidence_facts, or at least name a txn_id present in the case."""
-    facts = set(case["prompt_payload"].get("evidence_facts", []))
-    txns = _txn_ids(case)
+    """Every supporting-evidence item must match a case evidence fact.
+
+    This intentionally does not grant credit merely for mentioning a known
+    txn_id: a model can name a real transaction while inventing what happened.
+    """
+    facts = {
+        _normalize_fact(f)
+        for f in case["prompt_payload"].get("evidence_facts", [])
+    }
     items = note.get("supporting_evidence", [])
     if not items:
         return False
     for item in items:
-        if item in facts:
-            continue
-        if any(t and t in item for t in txns):
-            continue
-        return False
+        if _normalize_fact(item) not in facts:
+            return False
     return True
 
 
@@ -87,6 +91,7 @@ def _customer_safe(note):
 
 def grade_case(note, case):
     """Return the six rubric booleans for one (note, case) pair."""
+    note = clean_note_text(note)
     has_hn = bool(case["evaluation"].get("has_hard_neg"))
     if has_hn:
         hn_ok = (bool(note.get("caveats"))

@@ -123,6 +123,7 @@ amounts to USD via the shared `fx.to_usd` helper.
 | `investigation/build_cases.py` | Build compact investigation cases from scored card and row outputs | `scored_cards.csv`, `scored_rows.csv` or `scored_rows_ml.csv` | `investigation_cases.jsonl` |
 | `investigation/investigate.py` | Optional local-LLM investigation-note generator; consumes cases and writes structured notes | `investigation_cases.jsonl` | `investigation_notes.jsonl` |
 | `investigation/evaluate_notes.py` | Rubric-based evaluation of investigation notes for grounding, caution, and usefulness | `investigation_cases.jsonl`, `investigation_notes.jsonl` | `investigation_eval.json`, optional text report |
+
 **Swap contract:** only the scorer changes when the rule baseline is replaced by
 an ML model. `RuleScorer` (`score.py`) and `MLScorer` (`score_ml.py`) both
 satisfy the `Scorer` protocol (`scorer.py`); `features.py` and `evaluate.py` are
@@ -133,12 +134,15 @@ untouched. This is what makes the baseline-vs-model comparison a fair test.
 `fraud_eval/` (stdlib-only, plus scikit-learn for `score_ml`). `scripts/` holds
 orchestration that calls the package but is not part of it. `viz/` is a separate
 consumer with its own plotting dependency (§12). Nothing in `fraud_eval/` imports
-matplotlib. The optional `investigation/` layer is a downstream consumer of scored artifacts,
+matplotlib.
+
+The optional `investigation/` layer is a downstream consumer of scored artifacts,
 not part of the fraud detector. It does not alter generation, feature
 construction, scoring, threshold selection, or core evaluation. Its purpose is to
 show how a weak local LLM can be placed inside a constrained, auditable workflow:
 summarising evidence, identifying missing information, and recommending review
 steps without becoming the decision-maker.
+
 ---
 
 ## 4. Files and interfaces
@@ -550,6 +554,7 @@ Each criterion below is directly translatable to a test case.
   deterministic fake model or fixture.
 - A7. The investigation layer is a downstream consumer only: it does not modify
   scores, thresholds, generated data, features, or core evaluation outputs.
+
 ---
 
 ## 11. Resolved decisions
@@ -770,7 +775,7 @@ committed only if they are deterministic, small, and free of secrets.
 
 ---
 
-## 14. update future work
+## 14. Out of scope / future work
 
 - Production case-management workflow, analyst feedback ingestion, and
   human-in-the-loop retraining. The v1 investigation layer produces evaluated

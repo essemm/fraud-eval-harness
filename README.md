@@ -60,6 +60,9 @@ baseline. `RuleScorer` and `MLScorer` both satisfy the `Scorer` protocol;
 `features.py` and `evaluate.py` are untouched. This is what makes the
 rules-vs-ML comparison a fair test.
 
+Visualization and investigation are downstream consumers of scored and evaluated
+artifacts; they do not feed back into the detector.
+
 ---
 
 ## Fraud scenarios and hard negatives
@@ -82,7 +85,7 @@ precision.
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python3 -m pip install -r requirements.txt   # pytest only; pipeline is stdlib
+python3 -m pip install -r requirements.txt   # scikit-learn for ML scorer; pytest for tests
 ```
 
 ## Running the pipeline
